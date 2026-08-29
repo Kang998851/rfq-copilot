@@ -5,7 +5,7 @@ PHASE 3
 
 ## PHASE 3
 Quotation PDF: COMPLETE (A4 document at `/rfqs/[id]/quote`, downloadable PDF stored in company documents)
-Email send: COMPLETE (compose + history; Resend when `RESEND_API_KEY` is set; otherwise mail app + mark as sent)
+Email send: COMPLETE (compose + history; free mailbox SMTP from Settings; Resend when `RESEND_API_KEY` is set; otherwise mail app + mark as sent)
 Human-in-the-loop: Send requires ready quote and filled unit prices
 Settings: Company quote contact name/email for letterhead
 Schema: buyer_email, quotation sent status, quotation_sends with RLS

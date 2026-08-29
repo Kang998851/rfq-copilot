@@ -27,6 +27,15 @@ export function mailtoHref(to: string, subject: string, body: string): string {
   return `mailto:${to.trim()}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
+export function textToHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#172033;white-space:pre-wrap">${escaped}</div>`;
+}
+
 export function buildQuoteEmail(input: QuoteEmailInput): { subject: string; body: string } {
   const buyer = input.buyerName.trim() || (input.locale === "zh" ? "客户" : "Customer");
   const signoff = input.contactName?.trim() || input.companyName;

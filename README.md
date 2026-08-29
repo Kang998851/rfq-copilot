@@ -14,7 +14,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Set these variables in `.env.local`: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Optional: `AI_GATEWAY_API_KEY` for LLM extraction, plus `RESEND_API_KEY` and `RESEND_FROM` to send quotation emails from the app. Heuristic matching still works without AI. Without Resend, the app opens the user's mail app and can mark the quote as sent.
+Set these variables in `.env.local`: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Optional: `AI_GATEWAY_API_KEY` for LLM extraction, plus `RESEND_API_KEY` and `RESEND_FROM` if you later add a paid sending domain. Heuristic matching still works without AI. The free path is Settings → connect Gmail, Outlook, QQ or 163 with an app password; the app then sends quotations from that mailbox. Without a mailbox, the UI can still open the user's mail app.
 
 ## Supabase setup
 

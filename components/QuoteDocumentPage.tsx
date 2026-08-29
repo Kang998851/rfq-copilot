@@ -29,7 +29,7 @@ export default function QuoteDocumentPage() {
       setRfq(rfqData as Rfq | null);
       setQuote((quoteData ?? null) as Quotation | null);
       if (rfqData) {
-        const { data: companyData } = await supabase.from("companies").select("*").eq("id", rfqData.company_id).single();
+        const { data: companyData } = await supabase.from("companies").select("id, name, country, industry, website, default_currency, contact_email, contact_name").eq("id", rfqData.company_id).single();
         setCompany(companyData as Company | null);
       }
       if (quoteData) {

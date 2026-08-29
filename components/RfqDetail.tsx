@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { buildQuoteEmail, isValidEmail, mailtoHref } from "@/lib/quote/email";
+import { COMPANY_PUBLIC_COLUMNS, readStoredMailbox } from "@/lib/quote/smtp";
 import { downloadAndStoreQuotePdf } from "@/lib/quote/save";
 import { formatMoney, quoteTotal } from "@/lib/quote/totals";
 import type { Company, Product, Quotation, QuotationItem, QuotationSend, Rfq, RfqItem } from "@/types/database";
@@ -26,6 +27,7 @@ export default function RfqDetail() {
   const [body, setBody] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [canSend, setCanSend] = useState(false);
 
   async function load() {
     const supabase = createClient();
@@ -40,7 +42,7 @@ export default function RfqDetail() {
     setProducts((productData ?? []) as Product[]);
     setBuyerEmail(nextRfq?.buyer_email ?? "");
     if (nextRfq) {
-      const { data: companyData } = await supabase.from("companies").select("*").eq("id", nextRfq.company_id).single();
+      const { data: companyData } = await supabase.from("companies").select(COMPANY_PUBLIC_COLUMNS).eq("id", nextRfq.company_id).single();
       setCompany(companyData as Company | null);
     }
     const { data: quoteData } = await supabase.from("quotations").select("*").eq("rfq_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -55,6 +57,12 @@ export default function RfqDetail() {
     } else {
       setQuoteItems([]);
       setSends([]);
+    }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      const res = await fetch("/api/quotes/email", { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const payload = await res.json().catch(() => ({}));
+      setCanSend(Boolean(payload.configured) || Boolean(readStoredMailbox()));
     }
   }
 
@@ -218,7 +226,15 @@ export default function RfqDetail() {
     const res = await fetch("/api/quotes/email", {
       method: "POST",
       headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ quotationId: quote.id, to: buyerEmail, subject, body, action }),
+      body: JSON.stringify({
+        quotationId: quote.id,
+        to: buyerEmail,
+        subject,
+        body,
+        action,
+        smtp: readStoredMailbox(),
+        fromName: company?.contact_name || company?.name || "",
+      }),
     });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -249,6 +265,7 @@ export default function RfqDetail() {
   if (!rfq) return <div className="text-sm text-slate-500">{t.rfqDetail.loading}</div>;
 
   const quoteStatus = quote?.status === "sent" ? t.rfqDetail.sentLabel : quote?.status === "ready" ? t.rfqDetail.ready : t.rfqDetail.draft;
+  const senderEmail = readStoredMailbox()?.username || company?.contact_email || "";
 
   return (
     <div className="max-w-5xl">
@@ -366,6 +383,11 @@ export default function RfqDetail() {
           <p className="mt-1 text-sm text-slate-500">{t.rfqDetail.emailLead}</p>
           <div className="mt-5 space-y-4">
             <div>
+              <label className="label">{t.rfqDetail.emailFrom}</label>
+              <input className="field bg-slate-50" value={senderEmail} readOnly />
+              <p className="mt-2 text-xs text-slate-500">{t.rfqDetail.emailFromHint}</p>
+            </div>
+            <div>
               <label className="label">{t.rfqDetail.emailTo}</label>
               <input className="field" type="email" value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} placeholder={t.rfqDetail.buyerEmailPlaceholder} />
             </div>
@@ -378,12 +400,15 @@ export default function RfqDetail() {
               <textarea className="field" rows={10} value={body} onChange={(e) => setBody(e.target.value)} />
             </div>
             <div className="flex flex-wrap gap-2">
-              <button className="btn-primary" onClick={() => emailAction("send")} disabled={busy}>{t.rfqDetail.sendEmail}</button>
+              <button className="btn-primary" onClick={() => emailAction("send")} disabled={busy}>{busy ? t.rfqDetail.sending : t.rfqDetail.sendEmail}</button>
               <a className={`btn-secondary ${busy ? "pointer-events-none opacity-50" : ""}`} href={isValidEmail(buyerEmail) ? mailtoHref(buyerEmail, subject, body) : undefined} onClick={openMailto}>{t.rfqDetail.openMail}</a>
               <button className="btn-secondary" onClick={copyEmail}>{t.rfqDetail.copyEmail}</button>
               <button className="btn-secondary" onClick={() => emailAction("mark_sent")} disabled={busy}>{t.rfqDetail.markSent}</button>
             </div>
-            <p className="text-xs text-slate-500">{t.rfqDetail.emailHint}</p>
+            <p className="text-xs text-slate-500">
+              {canSend ? t.rfqDetail.sendReady : t.rfqDetail.emailHint}{" "}
+              {!canSend && <Link href="/settings" className="text-blue-600">{t.rfqDetail.connectMailbox}</Link>}
+            </p>
             {sends.length > 0 && (
               <div className="border-t border-slate-100 pt-4">
                 <p className="label">{t.rfqDetail.sendHistory}</p>

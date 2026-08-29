@@ -25,7 +25,7 @@ export default function Dashboard() {
       start.setDate(1);
       start.setHours(0, 0, 0, 0);
       const [{ data: companyData }, { count }, { count: monthCount }, { count: pendingCount }, { count: quoteCount }] = await Promise.all([
-        supabase.from("companies").select("*").eq("id", member.company_id).single(),
+        supabase.from("companies").select("id, name, country, industry, website, default_currency, contact_email, contact_name").eq("id", member.company_id).single(),
         supabase.from("products").select("id", { count: "exact", head: true }),
         supabase.from("rfqs").select("id", { count: "exact", head: true }).gte("created_at", start.toISOString()),
         supabase.from("rfqs").select("id", { count: "exact", head: true }).eq("status", "needs_review"),

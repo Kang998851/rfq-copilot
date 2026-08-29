@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { messages } from "@/lib/i18n/messages";
 import { buildQuoteEmail, isValidEmail } from "@/lib/quote/email";
+import {
+  detectSmtpPreset,
+  encodeMimeWord,
+  formatFromAddress,
+  mailboxAsUserSender,
+  isCompleteSmtpReply,
+  isSmtpReady,
+  parseMailboxPayload,
+  presetFromEmail,
+  smtpPreset,
+  stuffDots,
+} from "@/lib/quote/smtp";
 import { buildQuotePdf } from "@/lib/quote/pdf";
 import { allPricesFilled, formatMoney, lineAmount, quoteTotal } from "@/lib/quote/totals";
 import { extractBuyerEmail, extractFromRows, extractFromText } from "@/lib/rfq/extract";
@@ -70,6 +82,34 @@ describe("quotation helpers", () => {
     expect(new TextDecoder().decode(pdf.slice(0, 5))).toBe("%PDF-");
     expect(new TextDecoder().decode(pdf)).toContain("RFQ-2026-001");
     expect(new TextDecoder().decode(pdf)).toContain("VLV-002");
+  });
+
+  it("prepares a free mailbox from common providers", () => {
+    expect(smtpPreset("gmail")).toEqual({ host: "smtp.gmail.com", port: 587, secure: false });
+    expect(presetFromEmail("sales@gmail.com")).toBe("gmail");
+    expect(detectSmtpPreset("smtp.qq.com")).toBe("qq");
+    expect(formatFromAddress("Hengda", "quotes@hengda.test")).toBe("Hengda <quotes@hengda.test>");
+    expect(encodeMimeWord("报价")).toContain("UTF-8");
+    expect(stuffDots(".hidden\nline")).toBe("..hidden\nline");
+    expect(isCompleteSmtpReply("250 OK\r\n")).toBe(true);
+    expect(isCompleteSmtpReply("250-PIPELINING\r\n250 AUTH\r\n")).toBe(true);
+    expect(isCompleteSmtpReply("250-PIPELINING\r\n")).toBe(false);
+    expect(isSmtpReady(parseMailboxPayload({
+      host: "smtp.gmail.com",
+      port: 587,
+      username: "sales@gmail.com",
+      password: "abcd efgh ijkl mnop",
+      from: "sales@gmail.com",
+    }))).toBe(true);
+    expect(parseMailboxPayload({ host: "smtp.gmail.com", username: "sales@gmail.com" })).toBeNull();
+    expect(mailboxAsUserSender({
+      host: "smtp.gmail.com",
+      port: 587,
+      username: "sales@gmail.com",
+      password: "app-pass",
+      secure: false,
+      from: "RFQ Copilot <noreply@example.com>",
+    }, "Hengda Sales").from).toBe("Hengda Sales <sales@gmail.com>");
   });
 
   it("keeps English and Chinese dictionaries in sync", () => {
