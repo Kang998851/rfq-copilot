@@ -1,0 +1,1 @@
+export default function Settings() { return <div><p className="label">Workspace</p><h1 className="mt-2 text-2xl font-bold">Settings</h1><div className="mt-6 rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600">Workspace settings will expand in a later phase.</div></div> }

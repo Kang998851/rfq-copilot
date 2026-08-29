@@ -1,0 +1,21 @@
+sku,name,model,material,size,cost,currency,moq,lead_time_days,unit,category
+VLV-001,Gate Valve,GV-100,Stainless Steel,DN50,42.50,USD,10,18,pcs,Valve
+VLV-002,Ball Valve,BV-200,Brass,DN25,18.90,USD,20,12,pcs,Valve
+VLV-003,Butterfly Valve,BF-150,Ductile Iron,DN150,76.00,USD,5,25,pcs,Valve
+BRG-001,Deep Groove Bearing,6204-2RS,Chrome Steel,20x47x14,2.35,USD,100,14,pcs,Bearing
+BRG-002,Tapered Roller Bearing,30205,Chrome Steel,25x52x16.25,4.80,USD,50,21,pcs,Bearing
+BRG-003,Pillow Block Bearing,UCP205,Cast Iron,25mm,6.75,USD,50,20,pcs,Bearing
+FST-001,Hex Bolt,M8x40,Carbon Steel,M8x40,0.08,USD,1000,10,pcs,Fastener
+FST-002,Stainless Nut,M10,Stainless Steel,M10,0.06,USD,1000,10,pcs,Fastener
+FST-003,Socket Screw,M6x20,Alloy Steel,M6x20,0.05,USD,1000,12,pcs,Fastener
+PMP-001,Horizontal Centrifugal Pump,CP-40,Cast Iron,40mm,285.00,USD,2,35,unit,Pump
+PMP-002,Diaphragm Pump,DP-25,PP Plastic,25mm,198.00,USD,3,30,unit,Pump
+PMP-003,Submersible Pump,SP-750,Stainless Steel,750W,156.00,USD,5,28,unit,Pump
+MTR-001,Three Phase Motor,IE3-2P,Cast Iron,2.2kW,128.00,USD,5,25,unit,Motor
+MTR-002,Single Phase Motor,ML-90S,Aluminum,1.5kW,92.00,USD,10,22,unit,Motor
+MTR-003,Brake Motor,BE-100,Cast Iron,3kW,220.00,USD,3,30,unit,Motor
+FIT-001,Stainless Elbow,EL-304,Stainless Steel,1 inch,1.85,USD,100,15,pcs,Fitting
+FIT-002,Threaded Tee,TEE-25,Brass,25mm,1.20,USD,100,15,pcs,Fitting
+FIT-003,Flange Adapter,FA-80,Carbon Steel,DN80,8.50,USD,50,18,pcs,Fitting
+FIT-004,Quick Coupling,QC-12,Steel,1/2 inch,12.75,USD,20,20,pcs,Fitting
+FIT-005,Reducing Bushing,RB-25,Brass,25x15mm,0.95,USD,100,14,pcs,Fitting

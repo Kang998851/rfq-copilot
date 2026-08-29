@@ -1,0 +1,42 @@
+{
+  "name": "rfq-copilot",
+  "version": "0.1.0",
+  "private": true,
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint app components lib types tests",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --pool forks --maxWorkers 1 --minWorkers 1",
+    "verify:phase1b": "node --experimental-strip-types scripts/verify-phase1b.ts"
+  },
+  "dependencies": {
+    "@supabase/ssr": "0.6.1",
+    "@supabase/supabase-js": "2.57.0",
+    "lucide-react": "0.468.0",
+    "next": "15.5.24",
+    "papaparse": "5.5.3",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.1.0",
+    "@types/node": "22.10.2",
+    "@types/papaparse": "5.3.15",
+    "@types/react": "19.0.2",
+    "@types/react-dom": "19.0.2",
+    "@vitejs/plugin-react": "4.3.4",
+    "autoprefixer": "10.4.20",
+    "eslint": "9.16.0",
+    "eslint-config-next": "15.5.7",
+    "jsdom": "25.0.1",
+    "tailwindcss": "3.4.16",
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
+  }
+}
