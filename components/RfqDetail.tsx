@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { buildQuoteEmail, isValidEmail, mailtoHref } from "@/lib/quote/email";
+import { buildQuoteEmail, composeHref, isValidEmail } from "@/lib/quote/email";
 import { COMPANY_PUBLIC_COLUMNS, readStoredMailbox } from "@/lib/quote/smtp";
 import { downloadAndStoreQuotePdf } from "@/lib/quote/save";
 import { formatMoney, quoteTotal } from "@/lib/quote/totals";
@@ -27,7 +27,12 @@ export default function RfqDetail() {
   const [body, setBody] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [canSend, setCanSend] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [gmailEmail, setGmailEmail] = useState("");
+  const [mailboxReady, setMailboxReady] = useState(false);
+  const [mailboxEmail, setMailboxEmail] = useState("");
+  const [replies, setReplies] = useState<Array<{ id: string; from: string; date: string; snippet: string }>>([]);
 
   async function load() {
     const supabase = createClient();
@@ -59,10 +64,29 @@ export default function RfqDetail() {
       setSends([]);
     }
     const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      const res = await fetch("/api/quotes/email", { headers: { Authorization: `Bearer ${session.access_token}` } });
-      const payload = await res.json().catch(() => ({}));
-      setCanSend(Boolean(payload.configured) || Boolean(readStoredMailbox()));
+    setUserEmail(session?.user?.email ?? "");
+    const mailbox = readStoredMailbox();
+    setMailboxReady(Boolean(mailbox));
+    setMailboxEmail(mailbox?.username || mailbox?.from || "");
+    const status = await fetch("/api/mailbox/google/status");
+    const payload = await status.json().catch(() => ({}));
+    const connected = Boolean(payload.connected);
+    setGmailConnected(connected);
+    setGmailEmail(typeof payload.email === "string" ? payload.email : "");
+    if ((mailbox || connected) && nextRfq && session) {
+      const inbox = await fetch("/api/mailbox/replies", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mailbox,
+          reference: nextRfq.reference,
+          from: nextRfq.buyer_email || buyerEmail || "",
+        }),
+      });
+      const inboxPayload = await inbox.json().catch(() => ({}));
+      setReplies(Array.isArray(inboxPayload.replies) ? inboxPayload.replies : []);
+    } else {
+      setReplies([]);
     }
   }
 
@@ -232,8 +256,8 @@ export default function RfqDetail() {
         subject,
         body,
         action,
+        fromName: company?.contact_name,
         smtp: readStoredMailbox(),
-        fromName: company?.contact_name || company?.name || "",
       }),
     });
     const payload = await res.json().catch(() => ({}));
@@ -253,19 +277,33 @@ export default function RfqDetail() {
     setBusy(false);
   }
 
-  function openMailto(event: MouseEvent<HTMLAnchorElement>) {
+  function openCompose(event: MouseEvent<HTMLAnchorElement>) {
+    if (!isValidEmail(senderEmail)) {
+      event.preventDefault();
+      setMessage(t.rfqDetail.mailtoManual);
+      return;
+    }
     if (!isValidEmail(buyerEmail)) {
       event.preventDefault();
       setMessage(t.rfqDetail.needEmail);
       return;
     }
-    setMessage(t.rfqDetail.mailtoOpened);
+    if (quote?.status === "draft") {
+      event.preventDefault();
+      setMessage(t.rfqDetail.needReady);
+      return;
+    }
+    setMessage(t.rfqDetail.webmailOpened);
+    void emailAction("prepare");
   }
 
   if (!rfq) return <div className="text-sm text-slate-500">{t.rfqDetail.loading}</div>;
 
   const quoteStatus = quote?.status === "sent" ? t.rfqDetail.sentLabel : quote?.status === "ready" ? t.rfqDetail.ready : t.rfqDetail.draft;
-  const senderEmail = readStoredMailbox()?.username || company?.contact_email || "";
+  const senderEmail = gmailEmail || mailboxEmail || company?.contact_email || userEmail;
+  const mailboxConnected = mailboxReady || gmailConnected;
+  const canSend = mailboxConnected || isValidEmail(senderEmail);
+  const composeUrl = !mailboxConnected && canSend && isValidEmail(buyerEmail) ? composeHref(senderEmail, buyerEmail, subject, body) : undefined;
 
   return (
     <div className="max-w-5xl">
@@ -400,15 +438,36 @@ export default function RfqDetail() {
               <textarea className="field" rows={10} value={body} onChange={(e) => setBody(e.target.value)} />
             </div>
             <div className="flex flex-wrap gap-2">
-              <button className="btn-primary" onClick={() => emailAction("send")} disabled={busy}>{busy ? t.rfqDetail.sending : t.rfqDetail.sendEmail}</button>
-              <a className={`btn-secondary ${busy ? "pointer-events-none opacity-50" : ""}`} href={isValidEmail(buyerEmail) ? mailtoHref(buyerEmail, subject, body) : undefined} onClick={openMailto}>{t.rfqDetail.openMail}</a>
+              {mailboxConnected ? (
+                <button className="btn-primary" onClick={() => emailAction("send")} disabled={busy}>{busy ? t.rfqDetail.sending : t.rfqDetail.sendEmail}</button>
+              ) : (
+                <a className={`btn-primary ${busy ? "pointer-events-none opacity-50" : ""}`} href={composeUrl} target="_blank" rel="noreferrer" onClick={openCompose}>{t.rfqDetail.sendEmail}</a>
+              )}
               <button className="btn-secondary" onClick={copyEmail}>{t.rfqDetail.copyEmail}</button>
               <button className="btn-secondary" onClick={() => emailAction("mark_sent")} disabled={busy}>{t.rfqDetail.markSent}</button>
             </div>
             <p className="text-xs text-slate-500">
-              {canSend ? t.rfqDetail.sendReady : t.rfqDetail.emailHint}{" "}
-              {!canSend && <Link href="/settings" className="text-blue-600">{t.rfqDetail.connectMailbox}</Link>}
+              {mailboxConnected ? t.rfqDetail.gmailSendReady : canSend ? t.rfqDetail.sendReady : t.rfqDetail.emailHint}{" "}
+              {!mailboxConnected && <Link href="/settings" className="text-blue-600">{t.rfqDetail.connectMailbox}</Link>}
             </p>
+            {mailboxConnected && (
+              <div className="border-t border-slate-100 pt-4">
+                <p className="label">{t.rfqDetail.repliesTitle}</p>
+                {replies.length === 0 ? (
+                  <p className="mt-3 text-sm text-slate-500">{t.rfqDetail.noReplies}</p>
+                ) : (
+                  <ul className="mt-3 space-y-3 text-sm text-slate-600">
+                    {replies.map((reply) => (
+                      <li key={reply.id} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                        <p className="font-medium">{reply.from}</p>
+                        <p className="mt-1 text-xs text-slate-400">{reply.date}</p>
+                        <p className="mt-2">{reply.snippet}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             {sends.length > 0 && (
               <div className="border-t border-slate-100 pt-4">
                 <p className="label">{t.rfqDetail.sendHistory}</p>

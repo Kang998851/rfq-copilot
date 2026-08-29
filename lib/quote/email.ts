@@ -27,6 +27,23 @@ export function mailtoHref(to: string, subject: string, body: string): string {
   return `mailto:${to.trim()}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
+export function composeHref(from: string, to: string, subject: string, body: string): string {
+  const domain = from.trim().split("@")[1]?.toLowerCase() ?? "";
+  const recipient = to.trim();
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    const query = new URLSearchParams({ view: "cm", fs: "1", to: recipient, su: subject, body });
+    return `https://mail.google.com/mail/?${query.toString()}`;
+  }
+  if (domain === "outlook.com" || domain === "hotmail.com" || domain === "live.com" || domain.endsWith(".onmicrosoft.com")) {
+    const query = new URLSearchParams({ to: recipient, subject, body });
+    return `https://outlook.live.com/mail/0/deeplink/compose?${query.toString()}`;
+  }
+  if (domain === "qq.com" || domain.endsWith(".qq.com")) {
+    return mailtoHref(recipient, subject, body);
+  }
+  return mailtoHref(recipient, subject, body);
+}
+
 export function textToHtml(text: string): string {
   const escaped = text
     .replace(/&/g, "&amp;")

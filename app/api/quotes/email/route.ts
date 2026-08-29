@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { isValidEmail, mailtoHref, textToHtml } from "@/lib/quote/email";
+import { buildGmailRaw, readGmailSession, refreshGoogleAccess, sendGmail } from "@/lib/gmail/oauth";
+import { verifyImapMailbox } from "@/lib/quote/imap";
 import { sendSmtpMail } from "@/lib/quote/smtp-send";
 import { extractEmailAddress, mailboxAsUserSender, parseMailboxPayload } from "@/lib/quote/smtp";
 import { allPricesFilled } from "@/lib/quote/totals";
@@ -12,7 +14,13 @@ export async function GET(request: Request) {
   const supabase = client(request.headers.get("authorization"));
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  return NextResponse.json({ configured: Boolean(process.env.RESEND_API_KEY), provider: process.env.RESEND_API_KEY ? "resend" : null });
+  const gmail = await readGmailSession();
+  return NextResponse.json({
+    configured: Boolean(gmail),
+    connected: Boolean(gmail),
+    email: gmail?.email || null,
+    provider: gmail ? "gmail" : null,
+  });
 }
 
 type Action = "send" | "prepare" | "mark_sent" | "test";
@@ -36,7 +44,23 @@ export async function POST(request: Request) {
   const displayName = typeof body.fromName === "string" ? body.fromName.trim() : "";
 
   if (action === "test") {
-    if (!smtpRaw) return NextResponse.json({ error: "Connect a mailbox first" }, { status: 400 });
+    const gmail = await readGmailSession();
+    if (gmail) {
+      try {
+        const access = await refreshGoogleAccess(gmail.refreshToken);
+        await sendGmail(access, buildGmailRaw({
+          fromName: displayName,
+          fromEmail: gmail.email,
+          to: gmail.email,
+          subject: "RFQ Copilot mailbox test",
+          text: "Gmail is connected. RFQ Copilot can send quotation emails from this address.",
+        }));
+        return NextResponse.json({ ok: true, mode: "gmail", sent: true });
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "Gmail test failed" }, { status: 502 });
+      }
+    }
+    if (!smtpRaw) return NextResponse.json({ error: "Connect your mailbox first" }, { status: 400 });
     const smtp = mailboxAsUserSender(smtpRaw, displayName || undefined);
     try {
       await sendSmtpMail(smtp, {
@@ -45,7 +69,14 @@ export async function POST(request: Request) {
         text: "Your mailbox is connected. RFQ Copilot can send quotation emails from this address.",
         html: textToHtml("Your mailbox is connected. RFQ Copilot can send quotation emails from this address."),
       });
-      return NextResponse.json({ ok: true, mode: "smtp", sent: true });
+      let inbox = false;
+      try {
+        await verifyImapMailbox(smtp);
+        inbox = true;
+      } catch {
+        inbox = false;
+      }
+      return NextResponse.json({ ok: true, mode: "smtp", sent: true, inbox });
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : "Mailbox test failed" }, { status: 502 });
     }
@@ -91,6 +122,37 @@ export async function POST(request: Request) {
 
   if (action === "mark_sent") {
     return markSent(supabase, quote, user.id, to, subject, text, "mailto");
+  }
+
+  const gmail = await readGmailSession();
+  if (gmail) {
+    try {
+      const access = await refreshGoogleAccess(gmail.refreshToken);
+      await sendGmail(access, buildGmailRaw({
+        fromName: displayName || companyRow?.contact_name || companyRow?.name,
+        fromEmail: gmail.email,
+        to,
+        subject,
+        text,
+      }));
+      return markSent(supabase, quote, user.id, to, subject, text, "gmail");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Gmail could not send the message";
+      const failed = {
+        company_id: quote.company_id,
+        quotation_id: quote.id,
+        rfq_id: quote.rfq_id,
+        to_email: to,
+        subject,
+        body: text,
+        status: "failed",
+        provider: "manual",
+        error: message,
+        created_by: user.id,
+      };
+      await supabase.from("quotation_sends").insert(failed);
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
   }
 
   const smtp = smtpRaw
@@ -149,7 +211,7 @@ async function markSent(
   to: string,
   subject: string,
   text: string,
-  provider: "resend" | "mailto" | "smtp",
+  provider: "resend" | "mailto" | "smtp" | "gmail",
 ) {
   const now = new Date().toISOString();
   const row = {
@@ -164,7 +226,7 @@ async function markSent(
     created_by: userId,
   };
   let { error } = await supabase.from("quotation_sends").insert(row);
-  if (error && provider === "smtp") {
+  if (error && (provider === "smtp" || provider === "gmail")) {
     ({ error } = await supabase.from("quotation_sends").insert({ ...row, provider: "manual" }));
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

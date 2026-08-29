@@ -3,35 +3,72 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useI18n } from "@/lib/i18n/provider";
+import { isValidEmail } from "@/lib/quote/email";
 import {
   COMPANY_PUBLIC_COLUMNS,
+  buildMailboxConfig,
   clearStoredMailbox,
   detectSmtpPreset,
   isSmtpReady,
-  parseMailboxPayload,
+  mailboxGuideHref,
+  mailboxServers,
   presetFromEmail,
   readStoredMailbox,
-  smtpPreset,
   writeStoredMailbox,
   type SmtpPreset,
 } from "@/lib/quote/smtp";
 import type { Company } from "@/types/database";
+
+const PRESETS: SmtpPreset[] = ["gmail", "outlook", "qq", "163", "custom"];
 
 export default function Settings() {
   const { t } = useI18n();
   const [company, setCompany] = useState<Company | null>(null);
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
-  const [preset, setPreset] = useState<SmtpPreset>("gmail");
-  const [host, setHost] = useState(smtpPreset("gmail").host);
-  const [port, setPort] = useState(String(smtpPreset("gmail").port));
-  const [secure, setSecure] = useState(false);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [userEmail, setUserEmail] = useState("");
+  const [preset, setPreset] = useState<SmtpPreset>("qq");
+  const [authCode, setAuthCode] = useState("");
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState(465);
+  const [imapHost, setImapHost] = useState("");
+  const [imapPort, setImapPort] = useState(993);
+  const [secure, setSecure] = useState(true);
   const [mailboxReady, setMailboxReady] = useState(false);
+  const [gmailConfigured, setGmailConfigured] = useState(false);
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [gmailEmail, setGmailEmail] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const hint = useMemo(() => {
+    if (preset === "gmail") return t.settings.mailboxHintGmail;
+    if (preset === "outlook") return t.settings.mailboxHintOutlook;
+    if (preset === "qq") return t.settings.mailboxHintQq;
+    if (preset === "163") return t.settings.mailboxHint163;
+    return t.settings.mailboxHint;
+  }, [preset, t.settings]);
+
+  const guideHref = mailboxGuideHref(preset);
+  const showServers = preset === "custom";
+
+  function applyPreset(next: SmtpPreset, email = contactEmail) {
+    setPreset(next);
+    const servers = mailboxServers(next, email);
+    setSmtpHost(servers.host);
+    setSmtpPort(servers.port);
+    setImapHost(servers.imapHost);
+    setImapPort(servers.imapPort);
+    setSecure(servers.secure);
+  }
+
+  useEffect(() => {
+    const flag = new URLSearchParams(window.location.search).get("gmail");
+    if (flag === "connected") setMessage(t.settings.gmailConnected);
+    if (flag === "denied") setMessage(t.settings.gmailDenied);
+    if (flag === "error") setMessage(t.settings.gmailError);
+    if (flag === "setup") setMessage(t.settings.gmailNeedSetup);
+  }, [t.settings.gmailConnected, t.settings.gmailDenied, t.settings.gmailError, t.settings.gmailNeedSetup]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -40,6 +77,18 @@ export default function Settings() {
       if (!user) return;
       const loginEmail = user.email ?? "";
       setUserEmail(loginEmail);
+      const stored = readStoredMailbox();
+      if (stored) {
+        setMailboxReady(isSmtpReady(stored));
+        setContactEmail(stored.username || stored.from);
+        setAuthCode(stored.password);
+        applyPreset(detectSmtpPreset(stored.host) === "custom" ? presetFromEmail(stored.username) : detectSmtpPreset(stored.host), stored.username);
+        setSmtpHost(stored.host);
+        setSmtpPort(stored.port);
+        setImapHost(stored.imapHost || "");
+        setImapPort(stored.imapPort || 993);
+        setSecure(stored.secure);
+      }
       const { data: member } = await supabase.from("company_members").select("company_id").eq("user_id", user.id).maybeSingle();
       if (!member) return;
       const { data } = await supabase.from("companies").select(COMPANY_PUBLIC_COLUMNS).eq("id", member.company_id).single();
@@ -47,80 +96,67 @@ export default function Settings() {
         const next = data as Company;
         setCompany(next);
         setContactName(next.contact_name ?? "");
-        setContactEmail(next.contact_email ?? "");
-        const stored = readStoredMailbox();
-        if (stored) {
-          setPreset(detectSmtpPreset(stored.host));
-          setHost(stored.host);
-          setPort(String(stored.port));
-          setSecure(stored.secure);
-          setUsername(stored.username);
-          setPassword(stored.password);
-          setMailboxReady(true);
-        } else {
-          const email = loginEmail || next.contact_email || "";
-          const nextPreset = presetFromEmail(email);
-          const defaults = smtpPreset(nextPreset);
-          setPreset(nextPreset);
-          setHost(defaults.host);
-          setPort(String(defaults.port));
-          setSecure(defaults.secure);
-          setUsername(email);
-          if (!next.contact_email && email) setContactEmail(email);
+        if (!stored) {
+          const email = next.contact_email || loginEmail;
+          setContactEmail(email);
+          applyPreset(presetFromEmail(email), email);
         }
       }
+      const status = await fetch("/api/mailbox/google/status");
+      const payload = await status.json().catch(() => ({}));
+      setGmailConfigured(Boolean(payload.configured));
+      setGmailConnected(Boolean(payload.connected));
+      setGmailEmail(typeof payload.email === "string" ? payload.email : "");
     })();
   }, []);
 
-  const mailbox = useMemo(() => parseMailboxPayload({
-    host,
-    port: Number(port) || 587,
-    username,
-    password,
-    secure,
-    from: username,
-  }), [host, password, port, secure, username]);
-
-  function applyPreset(next: SmtpPreset) {
-    setPreset(next);
-    if (next === "custom") return;
-    const defaults = smtpPreset(next);
-    setHost(defaults.host);
-    setPort(String(defaults.port));
-    setSecure(defaults.secure);
+  function currentMailbox() {
+    return buildMailboxConfig({
+      preset,
+      email: contactEmail.trim() || userEmail,
+      password: authCode,
+      displayName: contactName,
+      host: smtpHost,
+      port: smtpPort,
+      imapHost,
+      imapPort,
+      secure,
+    });
   }
 
   async function save(e: FormEvent) {
     e.preventDefault();
     if (!company) return;
-    setBusy(true);
-    setMessage("");
-    const { error } = await createClient().from("companies").update({
-      contact_name: contactName.trim() || null,
-      contact_email: contactEmail.trim() || username.trim() || null,
-    }).eq("id", company.id);
-    if (error) {
+    const email = contactEmail.trim() || userEmail;
+    if (email && !isValidEmail(email)) {
       setMessage(t.settings.saveFail);
-      setBusy(false);
       return;
     }
+    setBusy(true);
+    setMessage("");
+    const mailbox = currentMailbox();
     if (mailbox) {
       writeStoredMailbox(mailbox);
       setMailboxReady(true);
     }
-    setMessage(t.settings.saved);
+    const { error } = await createClient().from("companies").update({
+      contact_name: contactName.trim() || null,
+      contact_email: email || null,
+    }).eq("id", company.id);
+    setMessage(error ? t.settings.saveFail : mailbox ? t.settings.mailboxConnected : t.settings.saved);
     setBusy(false);
   }
 
   async function testMailbox() {
+    const mailbox = currentMailbox();
     if (!mailbox) {
-      setMessage(t.settings.testFail);
+      setMessage(t.settings.mailboxMissing);
       return;
     }
-    setBusy(true);
-    setMessage("");
     writeStoredMailbox(mailbox);
     setMailboxReady(true);
+    setBusy(true);
+    setMessage("");
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
@@ -131,18 +167,49 @@ export default function Settings() {
     const res = await fetch("/api/quotes/email", {
       method: "POST",
       headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "test", smtp: mailbox, fromName: contactName }),
+      body: JSON.stringify({ action: "test", fromName: contactName, smtp: mailbox }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) setMessage(payload.error ?? t.settings.testFail);
+    else if (payload.inbox === false) setMessage(t.settings.inboxFail);
+    else setMessage(`${t.settings.testOk} ${t.settings.inboxOk}`);
+    setBusy(false);
+  }
+
+  async function disconnectMailbox() {
+    clearStoredMailbox();
+    setAuthCode("");
+    setMailboxReady(false);
+    setMessage(t.settings.mailboxCleared);
+  }
+
+  async function disconnectGmail() {
+    setBusy(true);
+    await fetch("/api/mailbox/google/disconnect", { method: "POST" });
+    setGmailConnected(false);
+    setGmailEmail("");
+    setMessage(t.settings.gmailDisconnected);
+    setBusy(false);
+  }
+
+  async function testGmail() {
+    setBusy(true);
+    setMessage("");
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setMessage(t.settings.saveFail);
+      setBusy(false);
+      return;
+    }
+    const res = await fetch("/api/quotes/email", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "test", fromName: contactName }),
     });
     const payload = await res.json().catch(() => ({}));
     setMessage(res.ok ? t.settings.testOk : (payload.error ?? t.settings.testFail));
     setBusy(false);
-  }
-
-  function disconnect() {
-    clearStoredMailbox();
-    setPassword("");
-    setMailboxReady(false);
-    setMessage(t.settings.mailboxCleared);
   }
 
   return (
@@ -159,62 +226,108 @@ export default function Settings() {
           <label className="label" htmlFor="contact-name">{t.settings.contactName}</label>
           <input id="contact-name" className="field" value={contactName} onChange={(e) => setContactName(e.target.value)} />
         </div>
-        <div>
-          <label className="label" htmlFor="contact-email">{t.settings.contactEmail}</label>
-          <input id="contact-email" className="field" type="email" value={contactEmail} onChange={(e) => setContactEmail(e.target.value)} />
-        </div>
-        <p className="text-xs text-slate-500">{t.settings.contactHint}</p>
 
         <div className="border-t border-slate-100 pt-4">
           <h2 className="text-base font-semibold">{t.settings.mailboxTitle}</h2>
-          <p className="mt-1 text-sm text-slate-500">{t.settings.mailboxLead}</p>
-          <p className="mt-3 text-xs font-medium text-slate-600">{mailboxReady || isSmtpReady(mailbox) ? t.settings.mailboxConnected : t.settings.mailboxMissing}</p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{t.settings.mailboxLead}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-500">{t.settings.mailboxWhy}</p>
+          <p className="label mt-4">{t.settings.mailboxPreset}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {PRESETS.map((kind) => (
+              <button
+                key={kind}
+                type="button"
+                className={`rounded-md border px-3 py-2 text-sm ${preset === kind ? "border-blue-600 bg-blue-50 font-semibold text-blue-800" : "border-slate-200 text-slate-600"}`}
+                onClick={() => applyPreset(kind)}
+              >
+                {kind === "gmail" ? t.settings.presetGmail
+                  : kind === "outlook" ? t.settings.presetOutlook
+                    : kind === "qq" ? t.settings.presetQq
+                      : kind === "163" ? t.settings.preset163
+                        : t.settings.presetCustom}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="label" htmlFor="contact-email">{t.settings.smtpUser}</label>
+          <input
+            id="contact-email"
+            className="field"
+            type="email"
+            value={contactEmail}
+            onChange={(e) => {
+              const value = e.target.value;
+              setContactEmail(value);
+              const next = presetFromEmail(value);
+              if (next !== "custom" || preset === "custom") applyPreset(next === "custom" ? preset : next, value);
+            }}
+            placeholder={userEmail}
+          />
         </div>
         <div>
-          <label className="label" htmlFor="smtp-preset">{t.settings.mailboxPreset}</label>
-          <select id="smtp-preset" className="field" value={preset} onChange={(e) => applyPreset(e.target.value as SmtpPreset)}>
-            <option value="gmail">{t.settings.presetGmail}</option>
-            <option value="outlook">{t.settings.presetOutlook}</option>
-            <option value="qq">{t.settings.presetQq}</option>
-            <option value="163">{t.settings.preset163}</option>
-            <option value="custom">{t.settings.presetCustom}</option>
-          </select>
+          <label className="label" htmlFor="auth-code">{t.settings.smtpPass}</label>
+          <input id="auth-code" className="field" type="password" autoComplete="off" value={authCode} onChange={(e) => setAuthCode(e.target.value)} />
         </div>
-        {preset === "custom" && (
-          <>
-            <div>
+        <p className="whitespace-pre-wrap text-sm leading-6 text-slate-600">{hint}</p>
+        {guideHref && (
+          <a className="text-sm text-blue-600" href={guideHref} target="_blank" rel="noreferrer">{t.settings.mailboxGuideOpen}</a>
+        )}
+        {showServers && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
               <label className="label" htmlFor="smtp-host">{t.settings.smtpHost}</label>
-              <input id="smtp-host" className="field" value={host} onChange={(e) => setHost(e.target.value)} />
+              <input id="smtp-host" className="field" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} />
             </div>
             <div>
               <label className="label" htmlFor="smtp-port">{t.settings.smtpPort}</label>
-              <input id="smtp-port" className="field" inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value)} />
+              <input id="smtp-port" className="field" type="number" value={smtpPort} onChange={(e) => setSmtpPort(Number(e.target.value) || 587)} />
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-600">
+            <div>
+              <label className="label" htmlFor="imap-host">{t.settings.imapHost}</label>
+              <input id="imap-host" className="field" value={imapHost} onChange={(e) => setImapHost(e.target.value)} />
+            </div>
+            <div>
+              <label className="label" htmlFor="imap-port">{t.settings.imapPort}</label>
+              <input id="imap-port" className="field" type="number" value={imapPort} onChange={(e) => setImapPort(Number(e.target.value) || 993)} />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-600 sm:col-span-2">
               <input type="checkbox" checked={secure} onChange={(e) => setSecure(e.target.checked)} />
               {t.settings.smtpSecure}
             </label>
-          </>
+          </div>
         )}
-        <div>
-          <label className="label" htmlFor="smtp-user">{t.settings.smtpUser}</label>
-          <input id="smtp-user" className="field" type="email" value={username} onChange={(e) => {
-            setUsername(e.target.value);
-            if (!contactEmail || contactEmail === username || contactEmail === userEmail) setContactEmail(e.target.value);
-          }} placeholder={userEmail} />
-        </div>
-        <div>
-          <label className="label" htmlFor="smtp-pass">{t.settings.smtpPass}</label>
-          <input id="smtp-pass" className="field" type="password" autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} />
-          <p className="mt-2 text-xs text-slate-500">{preset === "gmail" ? t.settings.mailboxHintGmail : t.settings.mailboxHint}</p>
-        </div>
+        <p className="text-xs leading-5 text-slate-500">{mailboxReady ? t.settings.mailboxConnected : t.settings.mailboxMissing}</p>
+        <p className="text-xs leading-5 text-slate-500">{t.settings.mailboxPrivacy}</p>
+
+        {gmailConfigured && (
+          <div className="border-t border-slate-100 pt-4">
+            <h2 className="text-base font-semibold">{t.settings.gmailTitle}</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">{t.settings.gmailLead}</p>
+            {gmailConnected ? (
+              <p className="mt-3 text-sm font-medium text-slate-700">{t.settings.gmailConnectedAs} {gmailEmail}</p>
+            ) : (
+              <p className="mt-3 text-sm text-slate-500">{t.settings.gmailMissing}</p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {!gmailConnected && <a className="btn-secondary" href="/api/mailbox/google">{t.settings.connectGmail}</a>}
+              {gmailConnected && (
+                <>
+                  <button type="button" className="btn-secondary" disabled={busy} onClick={testGmail}>{busy ? t.settings.testingMailbox : t.settings.testMailbox}</button>
+                  <button type="button" className="btn-secondary" disabled={busy} onClick={disconnectGmail}>{t.settings.disconnectGmail}</button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {message && <p className="text-sm text-slate-600">{message}</p>}
         <div className="flex flex-wrap gap-2">
           <button className="btn-primary" disabled={busy || !company}>{busy ? t.settings.saving : t.settings.save}</button>
-          <button type="button" className="btn-secondary" disabled={busy || !mailbox} onClick={testMailbox}>{busy ? t.settings.testingMailbox : t.settings.testMailbox}</button>
-          {mailboxReady && <button type="button" className="btn-secondary" disabled={busy} onClick={disconnect}>{t.settings.clearMailbox}</button>}
+          <button type="button" className="btn-secondary" disabled={busy} onClick={testMailbox}>{busy ? t.settings.testingMailbox : t.settings.testMailbox}</button>
+          {mailboxReady && <button type="button" className="btn-secondary" disabled={busy} onClick={disconnectMailbox}>{t.settings.clearMailbox}</button>}
         </div>
-        <p className="text-xs text-slate-500">{t.settings.mailboxPrivacy}</p>
       </form>
     </div>
   );
