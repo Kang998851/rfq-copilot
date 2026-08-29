@@ -1,7 +1,15 @@
 # RFQ Copilot Development Progress
 
 ## Current Phase
-PHASE 1
+PHASE 2
+
+## PHASE 2
+RFQ Workspace: COMPLETE (upload CSV/Excel/text, extract line items, catalog match, human review, quotation draft)
+AI Extraction: OPTIONAL (server `/api/rfqs/extract` uses AI Gateway when `AI_GATEWAY_API_KEY` or Vercel OIDC is present; heuristic parser always works)
+Quote prices: Human-in-the-loop (catalog cost copied, never invented; ready state requires filled prices)
+Email send / PDF file: NOT IN THIS SLICE (copy email draft + print)
+Schema: rfqs, rfq_items, quotations, quotation_items with RLS
+Sample: `sample-data/sample-rfq.csv`
 
 ## PHASE 1C
 Landing Page: COMPLETE
@@ -14,10 +22,33 @@ SEO: COMPLETE (metadata, OpenGraph, robots, sitemap, favicon)
 Privacy: COMPLETE
 Terms: COMPLETE (early-stage product terms)
 Vercel Build: PASS (Next.js 15.5.24 production build, 42 routes)
-Production Deployment: BLOCKED — VERCEL CLI NOT AUTHENTICATED (login flow requires user action)
-Production URL: NOT AVAILABLE
-Smoke Test: LOCAL PRODUCTION PASS; PUBLIC PRODUCTION NOT RUN
-Known Issues: Vercel account authentication is required; Phase 1B remains paused; production audit retains 1 high and 1 moderate transitive finding
+Production Deployment: READY (GitHub-linked Vercel project `rfq-copilot` on team Kang / kangstudio)
+Production URL: https://rfq-copilot-one.vercel.app
+Smoke Test: PUBLIC HTTP PASS on production aliases
+Known Issues: sitemap/robots still reference rfq-copilot.vercel.app; Phase 1B remains paused
+GitHub Repository: https://github.com/Kang998851/rfq-copilot
+
+## PHASE 1C Production Deployment
+Vercel Authentication: PASS (Vercel MCP + GitHub Login Connection)
+Vercel Project: rfq-copilot (prj_5XRFGYyEOmM2fRKoL9BDm8aDw3or) on Kang / kangstudio, linked to Kang998851/rfq-copilot
+Production Environment: PASS — NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY present; redeploy dpl_2zmJR29TCHC7fXQPe6RhQymL3YQL inlined them at build time (no secret keys added)
+Production Build: PASS (Vercel Node 24.x; latest READY dpl_2zmJR29TCHC7fXQPe6RhQymL3YQL)
+Deployment Status: READY
+Production URL: https://rfq-copilot-one.vercel.app
+Homepage: PASS (200)
+Demo: PASS (200)
+Demo Products: PASS (200, including /demo/products/VLV-001)
+Demo RFQs: PASS (200, including /demo/rfqs/RFQ-2026-001)
+Login: PASS (200)
+Private Route Protection: PASS — unauthenticated HTML is a generic shell with no company records; client JS redirects to /login (HTTP 200, not 302)
+Privacy: PASS (200)
+Terms: PASS (200)
+Robots: PASS (200)
+Sitemap: PASS (200)
+404: PASS (404)
+Responsive: HTML includes desktop/mobile nav breakpoints; live viewport check not completed (browser MCP unavailable)
+Supabase Production Connection: PASS — login bundle contains project URL and publishable key prefix; Auth health 200 with production Origin CORS; no Vercel runtime errors in last 2h
+Known Issues: sitemap/robots hardcoded to https://rfq-copilot.vercel.app while live host is https://rfq-copilot-one.vercel.app
 
 ## PHASE 1C Verification
 - Node: PASS (v24.20.0)

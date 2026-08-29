@@ -1,6 +1,6 @@
 # RFQ Copilot
 
-RFQ Copilot is a Phase 1 B2B SaaS foundation for Chinese industrial exporters. It provides a private company workspace where teams can upload, validate, import and maintain their product catalog.
+RFQ Copilot is a B2B SaaS workspace for Chinese industrial exporters. Teams can import a private product catalog, analyze customer RFQs, match line items, and prepare quotations for human review.
 
 ## Stack
 
@@ -14,7 +14,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Set these variables in `.env.local`: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Phase 1 does not require a service-role or secret key.
+Set these variables in `.env.local`: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Optional: `AI_GATEWAY_API_KEY` for LLM extraction. Heuristic matching works without it.
 
 ## Supabase setup
 
@@ -27,6 +27,8 @@ The application uses a private bucket path of `{company_id}/product-imports/{uui
 ## Sample import
 
 Use `sample-data/industrial-products.csv` from `/products/import`. It contains 20 industrial products across Valve, Bearing, Fastener, Pump, Motor and Fitting categories.
+
+Use `sample-data/sample-rfq.csv` from `/rfqs` to try extraction, catalog matching and quotation draft.
 
 ## Verification
 
@@ -45,6 +47,6 @@ Import the repository into Vercel, set the environment variables (the service ro
 
 ## Routes
 
-`/login`, `/signup`, `/onboarding`, `/dashboard`, `/products`, `/products/import`, `/products/[id]`, `/settings`.
+`/login`, `/signup`, `/onboarding`, `/dashboard`, `/products`, `/products/import`, `/products/[id]`, `/rfqs`, `/rfqs/[id]`, `/settings`.
 
-RFQ parsing, AI extraction, quote generation, email replies and PDF quotation generation are intentionally deferred to Phase 2.
+RFQ extraction uses a deterministic parser first. If `AI_GATEWAY_API_KEY` (or Vercel OIDC) is configured, the server can refine extraction with an LLM. Selling prices are never invented: quotation drafts copy catalog cost and stay in draft until a person fills empty prices and marks the quote ready. Email sending and generated PDF files are not included in this slice.
