@@ -7,6 +7,13 @@ function clean(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
+export function extractBuyerEmail(text: string): string {
+  const angled = /<([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})>/i.exec(text);
+  if (angled) return angled[1];
+  const match = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
+  return match?.[0] ?? "";
+}
+
 function parseQty(value: string): { quantity: number | null; unit: string | null } {
   const match = value.match(qtyPattern);
   if (!match) return { quantity: null, unit: null };
@@ -38,7 +45,13 @@ export function extractFromRows(rows: Record<string, unknown>[]): ExtractedRfq {
       category: map.category || map.type || map["品类"] || null,
     });
   }
-  return { buyer: "", items };
+  const fields = rows.map((row) => Object.entries(row).reduce<Record<string, string>>((acc, [key, value]) => {
+    acc[key.trim().toLowerCase().replace(/[._-]+/g, " ")] = clean(value);
+    return acc;
+  }, {}));
+  const email = fields.map((values) => values.email || values["buyer email"] || values["e mail"] || values["邮箱"] || "").find(Boolean) ?? "";
+  const buyer = fields.map((values) => values.customer || values.buyer || values.company || values["客户"] || "").find(Boolean) ?? "";
+  return { buyer, buyer_email: email, items };
 }
 
 export function extractFromText(text: string): ExtractedRfq {
@@ -71,11 +84,12 @@ export function extractFromText(text: string): ExtractedRfq {
     };
   }).filter((item) => item.requirement.length > 3);
 
-  return { buyer, items: items.slice(0, 50) };
+  return { buyer, buyer_email: extractBuyerEmail(text), items: items.slice(0, 50) };
 }
 
 export const extractedSchema = z.object({
   buyer: z.string(),
+  buyer_email: z.string().optional().nullable(),
   items: z.array(z.object({
     requirement: z.string().min(1),
     quantity: z.number().nullable(),
@@ -94,7 +108,7 @@ export async function extractWithAi(text: string): Promise<ExtractedRfq | null> 
     const result = await generateText({
       model: "openai/gpt-5.4",
       output: Output.object({ schema: extractedSchema }),
-      prompt: `Extract industrial RFQ line items from this customer request. Do not invent prices, SKUs, or commercial terms. If quantity is missing use null. Return buyer company name if present.\n\n${text.slice(0, 12000)}`,
+      prompt: `Extract industrial RFQ line items from this customer request. Do not invent prices, SKUs, or commercial terms. If quantity is missing use null. Return buyer company name and buyer email if present.\n\n${text.slice(0, 12000)}`,
     });
     const output = extractedSchema.safeParse(result.output);
     if (!output.success || !output.data.items.length) return null;
@@ -110,6 +124,7 @@ export async function extractRfq(input: { text?: string; rows?: Record<string, u
   if (!ai) return heuristic;
   return {
     buyer: ai.buyer || heuristic.buyer,
+    buyer_email: ai.buyer_email || heuristic.buyer_email || "",
     items: ai.items.length ? ai.items : heuristic.items,
   };
 }

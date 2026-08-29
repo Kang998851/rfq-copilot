@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { extractFromRows, extractFromText, extractRfq } from "@/lib/rfq/extract";
+import { extractBuyerEmail, extractFromRows, extractFromText, extractRfq } from "@/lib/rfq/extract";
 import { matchItems, rfqStatus } from "@/lib/rfq/match";
 import { fileToContent, sourceTypeFromName } from "@/lib/rfq/parse";
 import { nextReference } from "@/lib/rfq/reference";
@@ -97,6 +97,7 @@ export default function RfqWorkspace() {
         company_id: member.company_id,
         reference,
         buyer_name: buyer.trim() || extracted.buyer || file?.name || "RFQ",
+        buyer_email: extracted.buyer_email || extractBuyerEmail(paste) || null,
         source_type: file ? sourceTypeFromName(file.name) : (paste.includes("@") ? "email" : "text"),
         source_filename: file?.name ?? null,
         document_id: documentId,

@@ -21,7 +21,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-60 shrink-0 border-r border-slate-200 bg-white p-4 md:flex md:flex-col">
+      <aside className="hidden w-60 shrink-0 border-r border-slate-200 bg-white p-4 print:hidden md:flex md:flex-col">
         <Link href="/dashboard" className="mb-8 block px-3 text-lg font-bold tracking-tight">RFQ <span className="text-blue-600">Copilot</span></Link>
         <nav className="space-y-1">{links.map(({ href, label, icon: Icon }) => (
           <Link key={href} href={href} className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium ${path === href || (href === "/rfqs" && path.startsWith("/rfqs/")) || (href === "/products" && path.startsWith("/products/") && !path.startsWith("/products/import")) ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50"}`}>
@@ -34,7 +34,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <div className="min-w-0 flex-1">
-        <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6">
+        <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6 print:hidden">
           <span className="text-sm font-semibold md:hidden">RFQ Copilot</span>
           <div className="ml-auto flex items-center gap-3">
             <span className="hidden text-xs text-slate-400 sm:inline">{t.app.workspaceShort}</span>

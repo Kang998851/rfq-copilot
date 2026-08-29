@@ -27,6 +27,7 @@ export type ExtractedItem = {
 
 export type ExtractedRfq = {
   buyer: string;
+  buyer_email?: string;
   items: ExtractedItem[];
 };
 

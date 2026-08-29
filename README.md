@@ -14,12 +14,12 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Set these variables in `.env.local`: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Optional: `AI_GATEWAY_API_KEY` for LLM extraction. Heuristic matching works without it.
+Set these variables in `.env.local`: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. Optional: `AI_GATEWAY_API_KEY` for LLM extraction, plus `RESEND_API_KEY` and `RESEND_FROM` to send quotation emails from the app. Heuristic matching still works without AI. Without Resend, the app opens the user's mail app and can mark the quote as sent.
 
 ## Supabase setup
 
 1. Create a Supabase project and enable email/password Auth.
-2. Apply `supabase/migrations/20260829000100_initial_schema.sql` with the Supabase CLI or SQL migration workflow. The migration creates all tables, RLS policies, the private `company-documents` bucket and Storage policies.
+2. Apply the SQL files in `supabase/migrations/` with the Supabase CLI or SQL migration workflow. They create all tables, RLS policies, the private `company-documents` bucket and Storage policies.
 3. Configure Auth email confirmation behavior appropriate for local testing.
 
 The application uses a private bucket path of `{company_id}/product-imports/{uuid}/{filename}`. Database and Storage policies check the authenticated user's membership in the company.
@@ -47,6 +47,6 @@ Import the repository into Vercel, set the environment variables (the service ro
 
 ## Routes
 
-`/login`, `/signup`, `/onboarding`, `/dashboard`, `/products`, `/products/import`, `/products/[id]`, `/rfqs`, `/rfqs/[id]`, `/settings`.
+`/login`, `/signup`, `/onboarding`, `/dashboard`, `/products`, `/products/import`, `/products/[id]`, `/rfqs`, `/rfqs/[id]`, `/rfqs/[id]/quote`, `/settings`.
 
-RFQ extraction uses a deterministic parser first. If `AI_GATEWAY_API_KEY` (or Vercel OIDC) is configured, the server can refine extraction with an LLM. Selling prices are never invented: quotation drafts copy catalog cost and stay in draft until a person fills empty prices and marks the quote ready. Email sending and generated PDF files are not included in this slice.
+RFQ extraction uses a deterministic parser first. If `AI_GATEWAY_API_KEY` (or Vercel OIDC) is configured, the server can refine extraction with an LLM. Selling prices are never invented: quotation drafts copy catalog cost and stay in draft until a person fills empty prices and marks the quote ready. Ready quotes can be downloaded as a PDF and sent as an email after human review.

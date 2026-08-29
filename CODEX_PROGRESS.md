@@ -1,13 +1,20 @@
 # RFQ Copilot Development Progress
 
 ## Current Phase
-PHASE 2
+PHASE 3
+
+## PHASE 3
+Quotation PDF: COMPLETE (A4 document at `/rfqs/[id]/quote`, downloadable PDF stored in company documents)
+Email send: COMPLETE (compose + history; Resend when `RESEND_API_KEY` is set; otherwise mail app + mark as sent)
+Human-in-the-loop: Send requires ready quote and filled unit prices
+Settings: Company quote contact name/email for letterhead
+Schema: buyer_email, quotation sent status, quotation_sends with RLS
 
 ## PHASE 2
 RFQ Workspace: COMPLETE (upload CSV/Excel/text, extract line items, catalog match, human review, quotation draft)
 AI Extraction: OPTIONAL (server `/api/rfqs/extract` uses AI Gateway when `AI_GATEWAY_API_KEY` or Vercel OIDC is present; heuristic parser always works)
 Quote prices: Human-in-the-loop (catalog cost copied, never invented; ready state requires filled prices)
-Email send / PDF file: NOT IN THIS SLICE (copy email draft + print)
+Email send / PDF file: MOVED TO PHASE 3
 Schema: rfqs, rfq_items, quotations, quotation_items with RLS
 Sample: `sample-data/sample-rfq.csv`
 

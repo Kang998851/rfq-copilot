@@ -2,20 +2,28 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import type { Product, Quotation, QuotationItem, Rfq, RfqItem } from "@/types/database";
+import { buildQuoteEmail, isValidEmail, mailtoHref } from "@/lib/quote/email";
+import { downloadAndStoreQuotePdf } from "@/lib/quote/save";
+import { formatMoney, quoteTotal } from "@/lib/quote/totals";
+import type { Company, Product, Quotation, QuotationItem, QuotationSend, Rfq, RfqItem } from "@/types/database";
 import { useI18n } from "@/lib/i18n/provider";
 
 export default function RfqDetail() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { id } = useParams<{ id: string }>();
   const [rfq, setRfq] = useState<Rfq | null>(null);
   const [items, setItems] = useState<RfqItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [quote, setQuote] = useState<Quotation | null>(null);
   const [quoteItems, setQuoteItems] = useState<QuotationItem[]>([]);
+  const [company, setCompany] = useState<Company | null>(null);
+  const [sends, setSends] = useState<QuotationSend[]>([]);
+  const [buyerEmail, setBuyerEmail] = useState("");
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -26,21 +34,53 @@ export default function RfqDetail() {
       supabase.from("rfq_items").select("*").eq("rfq_id", id).order("line_no"),
       supabase.from("products").select("*").eq("active", true),
     ]);
-    setRfq(rfqData as Rfq);
+    const nextRfq = rfqData as Rfq;
+    setRfq(nextRfq);
     setItems((itemData ?? []) as RfqItem[]);
     setProducts((productData ?? []) as Product[]);
+    setBuyerEmail(nextRfq?.buyer_email ?? "");
+    if (nextRfq) {
+      const { data: companyData } = await supabase.from("companies").select("*").eq("id", nextRfq.company_id).single();
+      setCompany(companyData as Company | null);
+    }
     const { data: quoteData } = await supabase.from("quotations").select("*").eq("rfq_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle();
     setQuote((quoteData ?? null) as Quotation | null);
     if (quoteData) {
-      const { data: qItems } = await supabase.from("quotation_items").select("*").eq("quotation_id", quoteData.id);
+      const [{ data: qItems }, { data: sendData }] = await Promise.all([
+        supabase.from("quotation_items").select("*").eq("quotation_id", quoteData.id),
+        supabase.from("quotation_sends").select("*").eq("quotation_id", quoteData.id).order("created_at", { ascending: false }),
+      ]);
       setQuoteItems((qItems ?? []) as QuotationItem[]);
-    } else setQuoteItems([]);
+      setSends((sendData ?? []) as QuotationSend[]);
+    } else {
+      setQuoteItems([]);
+      setSends([]);
+    }
   }
 
   useEffect(() => { load(); }, [id]);
 
+  const draft = useMemo(() => {
+    if (!rfq || !quote) return { subject: "", body: "" };
+    return buildQuoteEmail({
+      locale,
+      buyerName: rfq.buyer_name,
+      reference: rfq.reference,
+      companyName: company?.name ?? "RFQ Copilot",
+      contactName: company?.contact_name,
+      currency: quote.currency,
+      items: quoteItems,
+    });
+  }, [rfq, quote, quoteItems, company, locale]);
+
+  useEffect(() => {
+    setSubject(draft.subject);
+    setBody(draft.body);
+  }, [draft.subject, draft.body]);
+
   const statusLabel = (status: string) => t.rfqPage.status[status as keyof typeof t.rfqPage.status] ?? status;
   const missingLabel = (item: string) => t.rfqDetail.missingItems[item as keyof typeof t.rfqDetail.missingItems] ?? item;
+  const total = quote ? quoteTotal(quoteItems) : null;
 
   async function setReview(item: RfqItem, review_status: string) {
     await createClient().from("rfq_items").update({ review_status }).eq("id", item.id);
@@ -56,6 +96,13 @@ export default function RfqDetail() {
       review_status: "pending",
     }).eq("id", item.id);
     await load();
+  }
+
+  async function saveBuyerEmail() {
+    if (!rfq) return;
+    const value = buyerEmail.trim();
+    await createClient().from("rfqs").update({ buyer_email: value || null, updated_at: new Date().toISOString() }).eq("id", rfq.id);
+    setRfq({ ...rfq, buyer_email: value || null });
   }
 
   async function prepareQuote() {
@@ -84,6 +131,9 @@ export default function RfqDetail() {
         return;
       }
       current = data as Quotation;
+    } else if (current.status === "sent") {
+      await supabase.from("quotations").update({ status: "draft", sent_at: null, updated_at: new Date().toISOString() }).eq("id", current.id);
+      current = { ...current, status: "draft", sent_at: null };
     }
     await supabase.from("quotation_items").delete().eq("quotation_id", current.id);
     const rows = usable.map((item) => {
@@ -127,18 +177,78 @@ export default function RfqDetail() {
     setMessage(t.rfqDetail.ready);
   }
 
-  function emailDraft() {
-    if (!rfq) return "";
-    const lines = quoteItems.map((item) => `- ${item.sku ?? ""} ${item.name} × ${item.quantity ?? "?"} ${item.unit ?? ""} @ ${item.unit_price ?? "TBD"}`).join("\n");
-    return `Dear ${rfq.buyer_name},\n\nThank you for RFQ ${rfq.reference}. Please find our quotation draft below for your review.\n\n${lines}\n\nThis quotation is pending human confirmation and is not a final commercial offer.\n\nBest regards`;
+  async function downloadPdf() {
+    if (!rfq || !quote) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await downloadAndStoreQuotePdf({ rfq, quote, items: quoteItems, company, copy: t.quoteDoc });
+      setMessage(t.rfqDetail.pdfSaved);
+    } catch {
+      setMessage(t.rfqDetail.pdfFail);
+    }
+    setBusy(false);
   }
 
   async function copyEmail() {
-    await navigator.clipboard.writeText(emailDraft());
+    await navigator.clipboard.writeText(body || draft.body);
     setMessage(t.rfqDetail.copied);
   }
 
+  async function emailAction(action: "send" | "prepare" | "mark_sent") {
+    if (!quote) return;
+    if (action !== "prepare" && quote.status === "draft") {
+      setMessage(t.rfqDetail.needReady);
+      return;
+    }
+    if (!isValidEmail(buyerEmail)) {
+      setMessage(t.rfqDetail.needEmail);
+      return;
+    }
+    setBusy(true);
+    setMessage("");
+    await saveBuyerEmail();
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      setMessage(t.rfqPage.session);
+      setBusy(false);
+      return;
+    }
+    const res = await fetch("/api/quotes/email", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ quotationId: quote.id, to: buyerEmail, subject, body, action }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMessage(payload.error ?? t.rfqDetail.sendFail);
+      setBusy(false);
+      return;
+    }
+    if (payload.mode === "manual" && action === "send" && typeof payload.mailto === "string") {
+      window.location.href = payload.mailto;
+      setMessage(t.rfqDetail.mailtoOpened);
+    } else if (payload.sent) {
+      setMessage(t.rfqDetail.sent);
+    } else {
+      setMessage(t.rfqDetail.prepared);
+    }
+    await load();
+    setBusy(false);
+  }
+
+  function openMailto() {
+    if (!isValidEmail(buyerEmail)) {
+      setMessage(t.rfqDetail.needEmail);
+      return;
+    }
+    window.location.href = mailtoHref(buyerEmail, subject, body);
+  }
+
   if (!rfq) return <div className="text-sm text-slate-500">{t.rfqDetail.loading}</div>;
+
+  const quoteStatus = quote?.status === "sent" ? t.rfqDetail.sentLabel : quote?.status === "ready" ? t.rfqDetail.ready : t.rfqDetail.draft;
 
   return (
     <div className="max-w-5xl">
@@ -150,6 +260,14 @@ export default function RfqDetail() {
           <p className="mt-2 text-sm text-slate-500">{new Date(rfq.created_at).toLocaleString()}</p>
         </div>
         <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">{statusLabel(rfq.status)}</span>
+      </div>
+
+      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6">
+        <label className="label">{t.rfqDetail.buyerEmail}</label>
+        <div className="mt-2 flex flex-col gap-3 sm:flex-row">
+          <input className="field" type="email" value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} onBlur={saveBuyerEmail} placeholder={t.rfqDetail.buyerEmailPlaceholder} />
+          <button className="btn-secondary shrink-0" onClick={saveBuyerEmail}>{t.rfqDetail.saveEmail}</button>
+        </div>
       </div>
 
       <div className="space-y-6">
@@ -207,14 +325,14 @@ export default function RfqDetail() {
           <div className="flex flex-wrap gap-2">
             <button className="btn-primary" onClick={prepareQuote} disabled={busy}>{busy ? t.rfqDetail.preparing : t.rfqDetail.prepareQuote}</button>
             {quote && <button className="btn-secondary" onClick={markReady}>{t.rfqDetail.markReady}</button>}
-            {quote && <button className="btn-secondary" onClick={copyEmail}>{t.rfqDetail.copyEmail}</button>}
-            {quote && <button className="btn-secondary" onClick={() => window.print()}>{t.rfqDetail.print}</button>}
+            {quote && <button className="btn-secondary" onClick={downloadPdf} disabled={busy}>{t.rfqDetail.downloadPdf}</button>}
+            {quote && <Link href={`/rfqs/${rfq.id}/quote`} className="btn-secondary">{t.rfqDetail.openPdf}</Link>}
           </div>
         </div>
         {message && <p className="mt-3 text-sm text-slate-600">{message}</p>}
         {quote && (
           <div className="mt-5 overflow-x-auto">
-            <p className="mb-3 text-xs font-semibold uppercase text-slate-500">{quote.status === "ready" ? t.rfqDetail.ready : t.rfqDetail.draft} · {quote.currency}</p>
+            <p className="mb-3 text-xs font-semibold uppercase text-slate-500">{quoteStatus} · {quote.currency} · {t.rfqDetail.total} {formatMoney(total, quote.currency)}</p>
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="border-b text-xs uppercase text-slate-500">
                 <tr>
@@ -241,6 +359,44 @@ export default function RfqDetail() {
           </div>
         )}
       </div>
+
+      {quote && (
+        <div className="mt-6 rounded-lg border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-bold">{t.rfqDetail.emailTitle}</h2>
+          <p className="mt-1 text-sm text-slate-500">{t.rfqDetail.emailLead}</p>
+          <div className="mt-5 space-y-4">
+            <div>
+              <label className="label">{t.rfqDetail.emailTo}</label>
+              <input className="field" type="email" value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} placeholder={t.rfqDetail.buyerEmailPlaceholder} />
+            </div>
+            <div>
+              <label className="label">{t.rfqDetail.emailSubject}</label>
+              <input className="field" value={subject} onChange={(e) => setSubject(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">{t.rfqDetail.emailBody}</label>
+              <textarea className="field" rows={10} value={body} onChange={(e) => setBody(e.target.value)} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-primary" onClick={() => emailAction("send")} disabled={busy}>{t.rfqDetail.sendEmail}</button>
+              <button className="btn-secondary" onClick={openMailto} disabled={busy}>{t.rfqDetail.openMail}</button>
+              <button className="btn-secondary" onClick={copyEmail}>{t.rfqDetail.copyEmail}</button>
+              <button className="btn-secondary" onClick={() => emailAction("mark_sent")} disabled={busy}>{t.rfqDetail.markSent}</button>
+            </div>
+            <p className="text-xs text-slate-500">{t.rfqDetail.emailHint}</p>
+            {sends.length > 0 && (
+              <div className="border-t border-slate-100 pt-4">
+                <p className="label">{t.rfqDetail.sendHistory}</p>
+                <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                  {sends.slice(0, 5).map((send) => (
+                    <li key={send.id}>{new Date(send.created_at).toLocaleString()} · {send.to_email} · {send.status} · {send.provider}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
