@@ -38,7 +38,7 @@ export type QuotationItem = {
   unit_price: number | null; lead_time_days: number | null; notes: string | null;
 };
 
-type Table<Row, Insert, Update> = { Row: Row; Insert: Insert; Update: Update };
+type Table<Row, Insert, Update> = { Row: Row; Insert: Insert; Update: Update; Relationships: [] };
 
 export type Database = {
   public: {

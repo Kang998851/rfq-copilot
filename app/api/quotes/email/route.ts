@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isValidEmail, mailtoHref } from "@/lib/quote/email";
 import { allPricesFilled } from "@/lib/quote/totals";
 import { createUserClient } from "@/lib/supabase/route";
+import type { Quotation } from "@/types/database";
 
 export const maxDuration = 20;
 
@@ -23,11 +24,12 @@ export async function POST(request: Request) {
   if (!isValidEmail(to)) return NextResponse.json({ error: "Invalid recipient email" }, { status: 400 });
   if (!["send", "prepare", "mark_sent"].includes(action)) return NextResponse.json({ error: "Invalid action" }, { status: 400 });
 
-  const { data: quote, error: quoteError } = await supabase.from("quotations").select("*").eq("id", quotationId).single();
+  const { data: quoteData, error: quoteError } = await supabase.from("quotations").select("*").eq("id", quotationId).single();
+  const quote = quoteData as Quotation | null;
   if (quoteError || !quote) return NextResponse.json({ error: "Quotation not found" }, { status: 404 });
 
   const { data: items } = await supabase.from("quotation_items").select("quantity, unit_price").eq("quotation_id", quotationId);
-  if (action !== "prepare" && (quote.status === "draft" || !allPricesFilled(items ?? []))) {
+  if (action !== "prepare" && (quote.status === "draft" || !allPricesFilled((items ?? []) as Array<{ quantity: number | null; unit_price: number | null }>))) {
     return NextResponse.json({ error: "Quote must be ready with every unit price filled" }, { status: 400 });
   }
 
