@@ -52,7 +52,8 @@ export default function Dashboard() {
       <Stat label={t.dash.pending} value={pending} note={t.dash.awaitingReview} />
       <Stat label={t.dash.quotes} value={quotes} note={t.dash.readyQuotes} />
       </div>
-      <div className="mt-8 grid gap-4 md:grid-cols-3">
+      <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Action href="/products/new" title={t.dash.addTitle} body={t.dash.addBody} />
         <Action href="/products/import" title={t.dash.importTitle} body={t.dash.importBody} />
         <Action href="/products" title={t.dash.libraryTitle} body={t.dash.libraryBody} />
         <Link href="/rfqs" className="rounded-lg border border-dashed border-slate-300 bg-white p-5 hover:border-blue-300">

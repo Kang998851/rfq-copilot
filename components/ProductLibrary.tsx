@@ -32,7 +32,10 @@ export default function ProductLibrary() {
           <h1 className="mt-2 text-2xl font-bold">{t.catalog.title}</h1>
           <p className="mt-1 text-sm text-slate-500">{fill(t.catalog.count, { n: products.length })}</p>
         </div>
-        <Link href="/products/import" className="btn-primary">{t.catalog.import}</Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/products/new" className="btn-primary">{t.catalog.add}</Link>
+          <Link href="/products/import" className="btn-secondary">{t.catalog.import}</Link>
+        </div>
       </div>
       <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3">
         <input className="w-full text-sm outline-none" placeholder={t.catalog.search} value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -63,7 +66,16 @@ export default function ProductLibrary() {
             ))}</tbody>
           </table>
         )}
-        {!loading && filtered.length === 0 && <div className="p-10 text-center text-sm text-slate-500">{t.catalog.empty}</div>}
+        {!loading && filtered.length === 0 && (
+          <div className="p-10 text-center text-sm text-slate-500">
+            <p>{products.length === 0 && !search ? t.catalog.emptyNone : t.catalog.empty}</p>
+            {products.length === 0 && !search && (
+              <div className="mt-4 flex justify-center">
+                <Link href="/products/new" className="btn-primary">{t.catalog.add}</Link>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
