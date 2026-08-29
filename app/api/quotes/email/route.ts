@@ -1,15 +1,23 @@
+import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { isValidEmail, mailtoHref } from "@/lib/quote/email";
 import { allPricesFilled } from "@/lib/quote/totals";
-import { createUserClient } from "@/lib/supabase/route";
 import type { Quotation } from "@/types/database";
 
 export const maxDuration = 20;
 
 type Action = "send" | "prepare" | "mark_sent";
 
+function client(authorization: string | null) {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    { global: { headers: authorization ? { Authorization: authorization } : {} } },
+  );
+}
+
 export async function POST(request: Request) {
-  const supabase = createUserClient(request.headers.get("authorization"));
+  const supabase = client(request.headers.get("authorization"));
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -35,6 +43,7 @@ export async function POST(request: Request) {
 
   const { data: company } = await supabase.from("companies").select("name, contact_email, contact_name").eq("id", quote.company_id).single();
   const mailto = mailtoHref(to, subject, text);
+  const companyRow = company as { name?: string; contact_email?: string | null; contact_name?: string | null } | null;
 
   if (action === "prepare") {
     const { error } = await supabase.from("quotation_sends").insert({
@@ -74,7 +83,7 @@ export async function POST(request: Request) {
   }
 
   const from = process.env.RESEND_FROM
-    || (company?.contact_email ? `${company.contact_name || company.name} <${company.contact_email}>` : "RFQ Copilot <beth.t@example.com>");
+    || (companyRow?.contact_email ? `${companyRow.contact_name || companyRow.name} <${companyRow.contact_email}>` : "RFQ Copilot <beth.t@example.com>");
 
   const sent = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -102,7 +111,7 @@ export async function POST(request: Request) {
 }
 
 async function markSent(
-  supabase: ReturnType<typeof createUserClient>,
+  supabase: ReturnType<typeof client>,
   quote: { id: string; company_id: string; rfq_id: string },
   userId: string,
   to: string,
