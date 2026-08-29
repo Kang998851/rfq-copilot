@@ -112,7 +112,7 @@ export async function extractWithAi(text: string): Promise<ExtractedRfq | null> 
     });
     const output = extractedSchema.safeParse(result.output);
     if (!output.success || !output.data.items.length) return null;
-    return output.data;
+    return { ...output.data, buyer_email: output.data.buyer_email ?? undefined };
   } catch {
     return null;
   }
