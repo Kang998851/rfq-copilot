@@ -1,6 +1,6 @@
 import { Socket } from "node:net";
 import { connect as tlsConnect, type TLSSocket } from "node:tls";
-import { buildImapSearch, parseImapFetches, parseImapSearch, type MailReply } from "./imap-parse";
+import { buildImapSearch, imapQuote, parseImapFetches, parseImapSearch, type MailReply } from "./imap-parse";
 import { extractEmailAddress, inferImapHost, type SmtpConfig } from "./smtp";
 
 export type { MailReply } from "./imap-parse";
