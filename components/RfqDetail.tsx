@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { buildQuoteEmail, isValidEmail, mailtoHref } from "@/lib/quote/email";
@@ -226,9 +226,8 @@ export default function RfqDetail() {
       setBusy(false);
       return;
     }
-    if (payload.mode === "manual" && action === "send" && typeof payload.mailto === "string") {
-      window.location.href = payload.mailto;
-      setMessage(t.rfqDetail.mailtoOpened);
+    if (payload.mode === "manual" && action === "send") {
+      setMessage(t.rfqDetail.mailtoManual);
     } else if (payload.sent) {
       setMessage(t.rfqDetail.sent);
     } else {
@@ -238,12 +237,13 @@ export default function RfqDetail() {
     setBusy(false);
   }
 
-  function openMailto() {
+  function openMailto(event: MouseEvent<HTMLAnchorElement>) {
     if (!isValidEmail(buyerEmail)) {
+      event.preventDefault();
       setMessage(t.rfqDetail.needEmail);
       return;
     }
-    window.location.href = mailtoHref(buyerEmail, subject, body);
+    setMessage(t.rfqDetail.mailtoOpened);
   }
 
   if (!rfq) return <div className="text-sm text-slate-500">{t.rfqDetail.loading}</div>;
@@ -379,7 +379,7 @@ export default function RfqDetail() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="btn-primary" onClick={() => emailAction("send")} disabled={busy}>{t.rfqDetail.sendEmail}</button>
-              <button className="btn-secondary" onClick={openMailto} disabled={busy}>{t.rfqDetail.openMail}</button>
+              <a className={`btn-secondary ${busy ? "pointer-events-none opacity-50" : ""}`} href={isValidEmail(buyerEmail) ? mailtoHref(buyerEmail, subject, body) : undefined} onClick={openMailto}>{t.rfqDetail.openMail}</a>
               <button className="btn-secondary" onClick={copyEmail}>{t.rfqDetail.copyEmail}</button>
               <button className="btn-secondary" onClick={() => emailAction("mark_sent")} disabled={busy}>{t.rfqDetail.markSent}</button>
             </div>
