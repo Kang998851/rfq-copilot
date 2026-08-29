@@ -38,14 +38,10 @@ export type QuotationItem = {
   unit_price: number | null; lead_time_days: number | null; notes: string | null;
 };
 
-type Table<Row, Insert, Update> = { Row: Row; Insert: Insert; Update: Update; Relationships: [] };
+type Table<Row, Insert, Update> = { Row: Row; Insert: Insert; Update: Update };
 
 export type Database = {
   public: {
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
-    Enums: Record<string, never>;
-    CompositeTypes: Record<string, never>;
     Tables: {
       companies: Table<Company, Omit<Company, "id" | "contact_email" | "contact_name"> & { id?: string; contact_email?: string | null; contact_name?: string | null }, Partial<Company>>;
       products: Table<Product, Omit<Product, "id" | "created_at" | "updated_at"> & { id?: string }, Partial<Product>>;
