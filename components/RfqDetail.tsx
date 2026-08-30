@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { buildQuoteEmail, composeHref, isValidEmail } from "@/lib/quote/email";
+import { buildFollowUpEmail, followUpDueFrom, isFollowUpOverdue } from "@/lib/quote/followup";
 import { COMPANY_PUBLIC_COLUMNS, readStoredMailbox } from "@/lib/quote/smtp";
 import { downloadAndStoreQuotePdf } from "@/lib/quote/save";
 import { formatMoney, quoteTotal } from "@/lib/quote/totals";
@@ -26,6 +27,8 @@ export default function RfqDetail() {
   const [buyerEmail, setBuyerEmail] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [followSubject, setFollowSubject] = useState("");
+  const [followBody, setFollowBody] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [userEmail, setUserEmail] = useState("");
@@ -111,6 +114,22 @@ export default function RfqDetail() {
     setBody(draft.body);
   }, [draft.subject, draft.body]);
 
+  const followDraft = useMemo(() => {
+    if (!rfq) return { subject: "", body: "" };
+    return buildFollowUpEmail({
+      locale,
+      buyerName: rfq.buyer_name,
+      reference: rfq.reference,
+      companyName: company?.name ?? "RFQ Copilot",
+      contactName: company?.contact_name,
+    });
+  }, [rfq, company, locale]);
+
+  useEffect(() => {
+    setFollowSubject(followDraft.subject);
+    setFollowBody(followDraft.body);
+  }, [followDraft.subject, followDraft.body]);
+
   const statusLabel = (status: string) => t.rfqPage.status[status as keyof typeof t.rfqPage.status] ?? status;
   const missingLabel = (item: string) => t.rfqDetail.missingItems[item as keyof typeof t.rfqDetail.missingItems] ?? item;
   const total = quote ? quoteTotal(quoteItems) : null;
@@ -165,8 +184,16 @@ export default function RfqDetail() {
       }
       current = data as Quotation;
     } else if (current.status === "sent") {
-      await supabase.from("quotations").update({ status: "draft", sent_at: null, updated_at: new Date().toISOString() }).eq("id", current.id);
-      current = { ...current, status: "draft", sent_at: null };
+      const nowIso = new Date().toISOString();
+      await supabase.from("quotations").update({
+        status: "draft",
+        sent_at: null,
+        outcome: "open",
+        follow_up_due: null,
+        last_followed_up_at: null,
+        updated_at: nowIso,
+      }).eq("id", current.id);
+      current = { ...current, status: "draft", sent_at: null, outcome: "open", follow_up_due: null, last_followed_up_at: null };
     }
     await supabase.from("quotation_items").delete().eq("quotation_id", current.id);
     const rows = usable.map((item) => {
@@ -228,7 +255,30 @@ export default function RfqDetail() {
     setMessage(t.rfqDetail.copied);
   }
 
-  async function emailAction(action: "send" | "prepare" | "mark_sent") {
+  async function copyFollowUp() {
+    await navigator.clipboard.writeText(followBody || followDraft.body);
+    setMessage(t.rfqDetail.followUpCopied);
+  }
+
+  async function setOutcome(outcome: "open" | "won" | "lost") {
+    if (!quote || !rfq) return;
+    const now = new Date();
+    const nowIso = now.toISOString();
+    await createClient().from("quotations").update({
+      outcome,
+      follow_up_due: outcome === "open" ? followUpDueFrom(now) : quote.follow_up_due,
+      updated_at: nowIso,
+    }).eq("id", quote.id);
+    await createClient().from("rfqs").update({
+      status: outcome === "open" ? "sent" : outcome,
+      updated_at: nowIso,
+    }).eq("id", rfq.id);
+    setQuote({ ...quote, outcome, follow_up_due: outcome === "open" ? followUpDueFrom(now) : quote.follow_up_due });
+    setRfq({ ...rfq, status: outcome === "open" ? "sent" : outcome });
+    setMessage(outcome === "won" ? t.rfqDetail.outcomeWon : outcome === "lost" ? t.rfqDetail.outcomeLost : t.rfqDetail.outcomeOpen);
+  }
+
+  async function emailAction(action: "send" | "prepare" | "mark_sent" | "follow_up" | "mark_followed_up", draftOverride?: { subject: string; body: string }) {
     if (!quote) return;
     if (action !== "prepare" && quote.status === "draft") {
       setMessage(t.rfqDetail.needReady);
@@ -254,8 +304,8 @@ export default function RfqDetail() {
       body: JSON.stringify({
         quotationId: quote.id,
         to: buyerEmail,
-        subject,
-        body,
+        subject: draftOverride?.subject ?? subject,
+        body: draftOverride?.body ?? body,
         action,
         fromName: company?.contact_name,
         smtp: readStoredMailbox(),
@@ -269,6 +319,8 @@ export default function RfqDetail() {
     }
     if (payload.mode === "manual" && action === "send") {
       setMessage(t.rfqDetail.mailtoManual);
+    } else if (payload.followUp || action === "follow_up" || action === "mark_followed_up") {
+      setMessage(t.rfqDetail.followUpSent);
     } else if (payload.sent) {
       setMessage(t.rfqDetail.sent);
     } else {
@@ -302,11 +354,15 @@ export default function RfqDetail() {
 
   const rfqStatusTone = rfq.status === "needs_review"
     ? "bg-amber-500 text-white"
-    : rfq.status === "sent"
-      ? "bg-green-600 text-white"
-      : rfq.status === "quoted" || rfq.status === "matched"
-        ? "bg-blue-600 text-white"
-        : "bg-slate-700 text-white";
+    : rfq.status === "won"
+      ? "bg-emerald-700 text-white"
+      : rfq.status === "lost"
+        ? "bg-slate-500 text-white"
+        : rfq.status === "sent"
+          ? "bg-green-600 text-white"
+          : rfq.status === "quoted" || rfq.status === "matched"
+            ? "bg-blue-600 text-white"
+            : "bg-slate-700 text-white";
   const quoteStatus = quote?.status === "sent" ? t.rfqDetail.sentLabel : quote?.status === "ready" ? t.rfqDetail.ready : t.rfqDetail.draft;
   const senderEmail = gmailEmail || mailboxEmail || company?.contact_email || userEmail;
   const mailboxConnected = mailboxReady || gmailConnected;
@@ -513,6 +569,75 @@ export default function RfqDetail() {
                 </ul>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {quote?.status === "sent" && (
+        <div className="mt-6 rounded-lg border border-slate-200 bg-white p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold">{t.rfqDetail.outcomeTitle}</h2>
+              <p className="mt-1 text-sm text-slate-500">{t.rfqDetail.outcomeLead}</p>
+            </div>
+            {isFollowUpOverdue(quote) && quote.outcome === "open" && (
+              <span className="rounded-full bg-amber-500 px-3 py-1 text-sm font-bold text-white">{t.rfqDetail.overdueBadge}</span>
+            )}
+          </div>
+          <p className="mt-4 text-sm text-slate-600">
+            {quote.follow_up_due ? `${t.rfqDetail.dueOn} ${new Date(quote.follow_up_due).toLocaleString()}` : t.followUps.noDue}
+            {quote.last_followed_up_at ? ` · ${t.rfqDetail.lastFollowed} ${new Date(quote.last_followed_up_at).toLocaleString()}` : ""}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {quote.outcome !== "won" && <button className="btn-primary" onClick={() => setOutcome("won")}>{t.rfqDetail.markWon}</button>}
+            {quote.outcome !== "lost" && <button className="btn-secondary" onClick={() => setOutcome("lost")}>{t.rfqDetail.markLost}</button>}
+            {quote.outcome !== "open" && <button className="btn-secondary" onClick={() => setOutcome("open")}>{t.rfqDetail.reopen}</button>}
+          </div>
+        </div>
+      )}
+
+      {quote?.status === "sent" && quote.outcome === "open" && (
+        <div className="mt-6 rounded-lg border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-bold">{t.rfqDetail.followUpTitle}</h2>
+          <p className="mt-1 text-sm text-slate-500">{t.rfqDetail.followUpLead}</p>
+          <div className="mt-5 space-y-4">
+            <div>
+              <label className="label">{t.rfqDetail.emailSubject}</label>
+              <input className="field" value={followSubject} onChange={(e) => setFollowSubject(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">{t.rfqDetail.emailBody}</label>
+              <textarea className="field" rows={8} value={followBody} onChange={(e) => setFollowBody(e.target.value)} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {mailboxConnected ? (
+                <button className="btn-primary" onClick={() => emailAction("follow_up", { subject: followSubject, body: followBody })} disabled={busy}>
+                  {busy ? t.rfqDetail.sending : t.rfqDetail.sendFollowUp}
+                </button>
+              ) : (
+                <a
+                  className={`btn-primary ${busy ? "pointer-events-none opacity-50" : ""}`}
+                  href={isValidEmail(buyerEmail) ? composeHref(senderEmail, buyerEmail, followSubject, followBody) : undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(event) => {
+                    if (!isValidEmail(buyerEmail)) {
+                      event.preventDefault();
+                      setMessage(t.rfqDetail.needEmail);
+                      return;
+                    }
+                    setMessage(t.rfqDetail.webmailOpened);
+                    void emailAction("prepare", { subject: followSubject, body: followBody });
+                  }}
+                >
+                  {t.rfqDetail.sendFollowUp}
+                </a>
+              )}
+              <button className="btn-secondary" onClick={copyFollowUp}>{t.rfqDetail.copyEmail}</button>
+              <button className="btn-secondary" onClick={() => emailAction("mark_followed_up", { subject: followSubject, body: followBody })} disabled={busy}>
+                {t.rfqDetail.markSent}
+              </button>
+            </div>
           </div>
         </div>
       )}

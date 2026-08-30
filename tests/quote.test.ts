@@ -26,6 +26,7 @@ import {
 import { buildQuotePdf } from "@/lib/quote/pdf";
 import { allPricesFilled, formatMoney, lineAmount, quoteTotal } from "@/lib/quote/totals";
 import { extractBuyerEmail, extractFromRows, extractFromText } from "@/lib/rfq/extract";
+import { buildFollowUpEmail, followUpDueFrom, isFollowUpOverdue, pipelineBucket } from "@/lib/quote/followup";
 
 function keyPaths(value: unknown, prefix = ""): string[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return prefix ? [prefix] : [];
@@ -171,5 +172,25 @@ describe("quotation helpers", () => {
 
   it("keeps English and Chinese dictionaries in sync", () => {
     expect(keyPaths(messages.zh).sort()).toEqual(keyPaths(messages.en).sort());
+  });
+
+  it("schedules a 3-day follow-up and never auto-closes the quote", () => {
+    const sent = "2026-08-27T00:00:00.000Z";
+    expect(followUpDueFrom(sent)).toBe("2026-08-30T00:00:00.000Z");
+    expect(isFollowUpOverdue({ outcome: "open", sent_at: sent }, new Date("2026-08-30T00:00:00.000Z"))).toBe(true);
+    expect(isFollowUpOverdue({ outcome: "won", sent_at: sent }, new Date("2026-08-30T00:00:00.000Z"))).toBe(false);
+    expect(pipelineBucket({ outcome: "open", follow_up_due: "2026-08-31T00:00:00.000Z" }, new Date("2026-08-30T00:00:00.000Z"))).toBe("awaiting");
+    expect(pipelineBucket({ outcome: "lost", sent_at: sent })).toBe("lost");
+    const email = buildFollowUpEmail({
+      locale: "zh",
+      buyerName: "Northstar",
+      reference: "RFQ-2026-001",
+      companyName: "Hengda",
+      contactName: "销售",
+    });
+    expect(email.subject).toContain("RFQ-2026-001");
+    expect(email.body).toContain("Northstar");
+    expect(email.body).toContain("销售");
+    expect(email.body).not.toMatch(/\$|USD|价格/);
   });
 });

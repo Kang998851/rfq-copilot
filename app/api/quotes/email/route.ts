@@ -5,6 +5,7 @@ import { buildGmailRaw, readGmailSession, refreshGoogleAccess, sendGmail } from 
 import { verifyImapMailbox } from "@/lib/quote/imap";
 import { sendSmtpMail } from "@/lib/quote/smtp-send";
 import { extractEmailAddress, mailboxAsUserSender, parseMailboxPayload } from "@/lib/quote/smtp";
+import { followUpDueFrom } from "@/lib/quote/followup";
 import { allPricesFilled } from "@/lib/quote/totals";
 import type { Quotation } from "@/types/database";
 
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
   });
 }
 
-type Action = "send" | "prepare" | "mark_sent" | "test";
+type Action = "send" | "prepare" | "mark_sent" | "test" | "follow_up" | "mark_followed_up";
 
 function client(authorization: string | null) {
   return createClient(
@@ -89,14 +90,18 @@ export async function POST(request: Request) {
 
   if (!quotationId || !subject || !text) return NextResponse.json({ error: "Missing quotation fields" }, { status: 400 });
   if (!isValidEmail(to)) return NextResponse.json({ error: "Invalid recipient email" }, { status: 400 });
-  if (!["send", "prepare", "mark_sent"].includes(action)) return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+  if (!["send", "prepare", "mark_sent", "follow_up", "mark_followed_up"].includes(action)) return NextResponse.json({ error: "Invalid action" }, { status: 400 });
 
   const { data: quoteData, error: quoteError } = await supabase.from("quotations").select("*").eq("id", quotationId).single();
   const quote = quoteData as Quotation | null;
   if (quoteError || !quote) return NextResponse.json({ error: "Quotation not found" }, { status: 404 });
 
+  const isFollowUp = action === "follow_up" || action === "mark_followed_up";
+  if (isFollowUp && quote.status !== "sent") {
+    return NextResponse.json({ error: "Send the quotation before following up" }, { status: 400 });
+  }
   const { data: items } = await supabase.from("quotation_items").select("quantity, unit_price").eq("quotation_id", quotationId);
-  if (action !== "prepare" && (quote.status === "draft" || !allPricesFilled((items ?? []) as Array<{ quantity: number | null; unit_price: number | null }>))) {
+  if (!isFollowUp && action !== "prepare" && (quote.status === "draft" || !allPricesFilled((items ?? []) as Array<{ quantity: number | null; unit_price: number | null }>))) {
     return NextResponse.json({ error: "Quote must be ready with every unit price filled" }, { status: 400 });
   }
 
@@ -123,6 +128,9 @@ export async function POST(request: Request) {
   if (action === "mark_sent") {
     return markSent(supabase, quote, user.id, to, subject, text, "mailto");
   }
+  if (action === "mark_followed_up") {
+    return recordFollowUp(supabase, quote, user.id, to, subject, text, "mailto");
+  }
 
   const gmail = await readGmailSession();
   if (gmail) {
@@ -135,7 +143,7 @@ export async function POST(request: Request) {
         subject,
         text,
       }));
-      return markSent(supabase, quote, user.id, to, subject, text, "gmail");
+      return finishSend(supabase, quote, user.id, to, subject, text, "gmail", isFollowUp);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Gmail could not send the message";
       const failed = {
@@ -168,7 +176,7 @@ export async function POST(request: Request) {
         html: textToHtml(text),
         replyTo: smtp.username,
       });
-      return markSent(supabase, quote, user.id, to, subject, text, "smtp");
+      return finishSend(supabase, quote, user.id, to, subject, text, "smtp", isFollowUp);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Mailbox rejected the message";
       const failed = {
@@ -204,16 +212,30 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: true, mode: "manual", mailto, message: "Connect your mailbox in Settings to send from your address to the customer." });
 }
 
-async function markSent(
+function finishSend(
   supabase: ReturnType<typeof client>,
-  quote: { id: string; company_id: string; rfq_id: string },
+  quote: Quotation,
+  userId: string,
+  to: string,
+  subject: string,
+  text: string,
+  provider: "resend" | "mailto" | "smtp" | "gmail",
+  followUp: boolean,
+) {
+  return followUp
+    ? recordFollowUp(supabase, quote, userId, to, subject, text, provider)
+    : markSent(supabase, quote, userId, to, subject, text, provider);
+}
+
+async function insertSend(
+  supabase: ReturnType<typeof client>,
+  quote: Pick<Quotation, "id" | "company_id" | "rfq_id">,
   userId: string,
   to: string,
   subject: string,
   text: string,
   provider: "resend" | "mailto" | "smtp" | "gmail",
 ) {
-  const now = new Date().toISOString();
   const row = {
     company_id: quote.company_id,
     quotation_id: quote.id,
@@ -229,8 +251,52 @@ async function markSent(
   if (error && (provider === "smtp" || provider === "gmail")) {
     ({ error } = await supabase.from("quotation_sends").insert({ ...row, provider: "manual" }));
   }
+  return error;
+}
+
+async function markSent(
+  supabase: ReturnType<typeof client>,
+  quote: Quotation,
+  userId: string,
+  to: string,
+  subject: string,
+  text: string,
+  provider: "resend" | "mailto" | "smtp" | "gmail",
+) {
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const error = await insertSend(supabase, quote, userId, to, subject, text, provider);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  await supabase.from("quotations").update({ status: "sent", sent_at: now, updated_at: now }).eq("id", quote.id);
-  await supabase.from("rfqs").update({ status: "sent", updated_at: now }).eq("id", quote.rfq_id);
+  await supabase.from("quotations").update({
+    status: "sent",
+    sent_at: quote.sent_at || nowIso,
+    outcome: quote.outcome === "won" || quote.outcome === "lost" ? quote.outcome : "open",
+    follow_up_due: followUpDueFrom(now),
+    updated_at: nowIso,
+  }).eq("id", quote.id);
+  if (quote.outcome !== "won" && quote.outcome !== "lost") {
+    await supabase.from("rfqs").update({ status: "sent", updated_at: nowIso }).eq("id", quote.rfq_id);
+  }
   return NextResponse.json({ ok: true, mode: provider, sent: true });
+}
+
+async function recordFollowUp(
+  supabase: ReturnType<typeof client>,
+  quote: Quotation,
+  userId: string,
+  to: string,
+  subject: string,
+  text: string,
+  provider: "resend" | "mailto" | "smtp" | "gmail",
+) {
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const error = await insertSend(supabase, quote, userId, to, subject, text, provider);
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  await supabase.from("quotations").update({
+    last_followed_up_at: nowIso,
+    follow_up_due: followUpDueFrom(now),
+    updated_at: nowIso,
+  }).eq("id", quote.id);
+  return NextResponse.json({ ok: true, mode: provider, sent: true, followUp: true });
 }

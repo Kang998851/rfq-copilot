@@ -1,7 +1,14 @@
 # RFQ Copilot Development Progress
 
 ## Current Phase
-PHASE 3
+PHASE 4
+
+## PHASE 4
+Quote follow-up pipeline: COMPLETE (sent quotes, 3-day reminder, overdue list, won/lost)
+Follow-up email: COMPLETE (draft + human click send; never auto-send; no invented prices)
+Human-in-the-loop: Outcome is marked by a person; follow-up only after the quote is sent
+Schema: quotations.outcome / follow_up_due / last_followed_up_at; rfqs status won|lost
+UI: `/follow-ups`, dashboard overdue counts, RFQ outcome + follow-up draft
 
 ## PHASE 3
 Quotation PDF: COMPLETE (A4 document at `/rfqs/[id]/quote`, downloadable PDF stored in company documents)

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Package, Upload, Settings, LogOut, FileText } from "lucide-react";
+import { LayoutDashboard, Package, Upload, Settings, LogOut, FileText, Clock } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import LanguageSwitch from "@/components/LanguageSwitch";
 import { useI18n } from "@/lib/i18n/provider";
@@ -13,6 +13,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const links = [
     { href: "/dashboard", label: t.app.overview, icon: LayoutDashboard },
     { href: "/rfqs", label: t.app.rfqs, icon: FileText },
+    { href: "/follow-ups", label: t.app.followUps, icon: Clock },
     { href: "/products", label: t.app.products, icon: Package },
     { href: "/products/import", label: t.app.imports, icon: Upload },
     { href: "/settings", label: t.app.settings, icon: Settings },
@@ -24,7 +25,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <aside className="hidden w-60 shrink-0 border-r border-slate-200 bg-white p-4 print:hidden md:flex md:flex-col">
         <Link href="/dashboard" className="mb-8 block px-3 text-lg font-bold tracking-tight">RFQ <span className="text-blue-600">Copilot</span></Link>
         <nav className="space-y-1">{links.map(({ href, label, icon: Icon }) => (
-          <Link key={href} href={href} className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium ${path === href || (href === "/rfqs" && path.startsWith("/rfqs/")) || (href === "/products" && path.startsWith("/products/") && !path.startsWith("/products/import")) ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50"}`}>
+          <Link key={href} href={href} className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium ${path === href || (href === "/rfqs" && path.startsWith("/rfqs/")) || (href === "/follow-ups" && path.startsWith("/follow-ups")) || (href === "/products" && path.startsWith("/products/") && !path.startsWith("/products/import")) ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50"}`}>
             <Icon size={17} />{label}
           </Link>
         ))}</nav>

@@ -25,6 +25,8 @@ export type RfqItem = {
 export type Quotation = {
   id: string; company_id: string; rfq_id: string; status: string; currency: string;
   notes: string | null; sent_at: string | null; pdf_document_id: string | null;
+  outcome: "open" | "won" | "lost"; outcome_note: string | null;
+  follow_up_due: string | null; last_followed_up_at: string | null;
   created_at: string; updated_at: string;
 };
 export type QuotationSend = {
@@ -51,7 +53,7 @@ export type Database = {
       documents: Table<{ id: string; company_id: string; storage_path: string; original_filename: string; mime_type: string; size_bytes: number; document_type: string; created_at: string }, { company_id: string; storage_path: string; original_filename: string; mime_type: string; size_bytes: number; document_type: string }, Partial<{ original_filename: string }>>;
       rfqs: Table<Rfq, Omit<Rfq, "id" | "created_at" | "updated_at" | "buyer_email"> & { id?: string; created_at?: string; updated_at?: string; buyer_email?: string | null }, Partial<Rfq>>;
       rfq_items: Table<RfqItem, Omit<RfqItem, "id" | "created_at"> & { id?: string; created_at?: string }, Partial<RfqItem>>;
-      quotations: Table<Quotation, Omit<Quotation, "id" | "created_at" | "updated_at" | "sent_at" | "pdf_document_id"> & { id?: string; sent_at?: string | null; pdf_document_id?: string | null }, Partial<Quotation>>;
+      quotations: Table<Quotation, Omit<Quotation, "id" | "created_at" | "updated_at" | "sent_at" | "pdf_document_id" | "outcome" | "outcome_note" | "follow_up_due" | "last_followed_up_at"> & { id?: string; sent_at?: string | null; pdf_document_id?: string | null; outcome?: Quotation["outcome"]; outcome_note?: string | null; follow_up_due?: string | null; last_followed_up_at?: string | null }, Partial<Quotation>>;
       quotation_items: Table<QuotationItem, Omit<QuotationItem, "id"> & { id?: string }, Partial<QuotationItem>>;
       quotation_sends: Table<QuotationSend, Omit<QuotationSend, "id" | "created_at"> & { id?: string; created_at?: string }, Partial<QuotationSend>>;
     };
