@@ -191,7 +191,14 @@ export default function RfqWorkspace() {
                   <td className="px-4 py-3 font-medium">{r.buyer_name || "—"}</td>
                   <td className="px-4 py-3 text-slate-600">{new Date(r.created_at).toLocaleDateString()}</td>
                   <td className="px-4 py-3">{itemCounts[r.id] ?? "—"}</td>
-                  <td className="px-4 py-3"><span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">{statusLabel(r.status)}</span></td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                      r.status === "needs_review" ? "bg-amber-500 text-white"
+                        : r.status === "sent" ? "bg-green-600 text-white"
+                          : r.status === "quoted" || r.status === "matched" ? "bg-blue-600 text-white"
+                            : "bg-slate-700 text-white"
+                    }`}>{statusLabel(r.status)}</span>
+                  </td>
                   <td className="px-4 py-3"><Link href={`/rfqs/${r.id}`} className="text-sm font-semibold text-blue-600">{t.rfqPage.open}</Link></td>
                 </tr>
               ))}</tbody>

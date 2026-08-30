@@ -11,6 +11,7 @@ import { downloadAndStoreQuotePdf } from "@/lib/quote/save";
 import { formatMoney, quoteTotal } from "@/lib/quote/totals";
 import type { Company, Product, Quotation, QuotationItem, QuotationSend, Rfq, RfqItem } from "@/types/database";
 import { useI18n } from "@/lib/i18n/provider";
+import { translateRequirement, translateUnit } from "@/lib/i18n/requirement";
 
 export default function RfqDetail() {
   const { t, locale } = useI18n();
@@ -299,6 +300,13 @@ export default function RfqDetail() {
 
   if (!rfq) return <div className="text-sm text-slate-500">{t.rfqDetail.loading}</div>;
 
+  const rfqStatusTone = rfq.status === "needs_review"
+    ? "bg-amber-500 text-white"
+    : rfq.status === "sent"
+      ? "bg-green-600 text-white"
+      : rfq.status === "quoted" || rfq.status === "matched"
+        ? "bg-blue-600 text-white"
+        : "bg-slate-700 text-white";
   const quoteStatus = quote?.status === "sent" ? t.rfqDetail.sentLabel : quote?.status === "ready" ? t.rfqDetail.ready : t.rfqDetail.draft;
   const senderEmail = gmailEmail || mailboxEmail || company?.contact_email || userEmail;
   const mailboxConnected = mailboxReady || gmailConnected;
@@ -314,7 +322,7 @@ export default function RfqDetail() {
           <h1 className="mt-2 text-3xl font-bold">{rfq.buyer_name}</h1>
           <p className="mt-2 text-sm text-slate-500">{new Date(rfq.created_at).toLocaleString()}</p>
         </div>
-        <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">{statusLabel(rfq.status)}</span>
+        <span className={`rounded-full px-4 py-1.5 text-sm font-bold ${rfqStatusTone}`}>{statusLabel(rfq.status)}</span>
       </div>
 
       <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6">
@@ -328,32 +336,59 @@ export default function RfqDetail() {
       <div className="space-y-6">
         {items.map((item) => {
           const product = products.find((p) => p.id === item.matched_product_id);
+          const review = item.review_status;
+          const requirement = translateRequirement(item.requirement, locale);
+          const visibleMissing = review === "accepted"
+            ? item.missing.filter((m) => m !== "Match confirmation")
+            : item.missing;
+          const lineTone = review === "accepted"
+            ? "border-green-500 bg-white ring-2 ring-green-100"
+            : review === "rejected"
+              ? "border-red-400 bg-white ring-2 ring-red-100"
+              : "border-amber-400 bg-amber-50/70 ring-2 ring-amber-200";
+          const matchTone = review === "accepted"
+            ? "border-green-400 bg-green-50"
+            : review === "rejected"
+              ? "border-red-300 bg-red-50"
+              : "border-amber-300 bg-amber-50";
+          const badgeTone = review === "accepted"
+            ? "bg-green-600 text-white"
+            : review === "rejected"
+              ? "bg-red-600 text-white"
+              : "bg-amber-500 text-white";
           return (
-            <div key={item.id} className="grid gap-6 border border-slate-200 bg-white p-6 lg:grid-cols-[1.1fr_0.9fr]">
+            <div key={item.id} className={`grid gap-6 border p-6 lg:grid-cols-[1.1fr_0.9fr] ${lineTone}`}>
               <div>
-                <p className="label">{t.rfqDetail.line} {item.line_no}</p>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="label">{t.rfqDetail.line} {item.line_no}</p>
+                  <span className={`rounded-full px-3 py-1 text-sm font-bold ${badgeTone}`}>
+                    {t.rfqDetail.review[review as keyof typeof t.rfqDetail.review] ?? review}
+                  </span>
+                </div>
                 <h2 className="mt-3 text-lg font-bold">{t.rfqDetail.customerReq}</h2>
-                <div className="mt-4 rounded-md bg-slate-50 p-4 text-sm font-medium leading-7">
-                  {item.requirement}
-                  <br />{t.rfqDetail.quantity}: {item.quantity ?? "—"} {item.unit ?? ""}
+                <div className="mt-4 rounded-md bg-white/80 p-4 text-sm font-medium leading-7">
+                  {requirement.text}
+                  <br />{t.rfqDetail.quantity}: {item.quantity ?? "—"} {translateUnit(item.unit, locale)}
+                  {requirement.changed && (
+                    <p className="mt-3 text-xs font-normal leading-6 text-slate-500">{t.rfqDetail.original}: {requirement.original}</p>
+                  )}
                 </div>
                 <h2 className="mt-7 text-lg font-bold">{t.rfqDetail.matchedProduct}</h2>
-                <div className={`mt-4 rounded-md border p-4 ${product ? "border-green-200 bg-green-50" : "border-amber-200 bg-amber-50"}`}>
+                <div className={`mt-4 rounded-md border p-4 ${matchTone}`}>
                   <div className="flex items-start justify-between">
                     <div>
                       <p className="text-sm font-semibold">{product ? `${product.sku} · ${product.name}` : t.rfqDetail.noMatch}</p>
                       <p className="mt-1 text-xs">{t.rfqDetail.confidenceScore} {item.confidence}%</p>
                     </div>
-                    {product && <CheckCircle2 className="text-green-700" size={20} />}
+                    {review === "accepted" && product && <CheckCircle2 className="text-green-700" size={20} />}
                   </div>
                   <select className="field mt-3" value={item.matched_product_id ?? ""} onChange={(e) => setMatch(item, e.target.value)}>
                     <option value="">{t.rfqDetail.changeMatch}</option>
                     {products.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
                   </select>
-                  <div className="mt-3 flex gap-2">
-                    <button className="btn-primary" onClick={() => setReview(item, "accepted")}>{t.rfqDetail.accept}</button>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button className={review === "accepted" ? "btn-secondary" : "btn-primary"} onClick={() => setReview(item, "accepted")}>{t.rfqDetail.accept}</button>
                     <button className="btn-secondary" onClick={() => setReview(item, "rejected")}>{t.rfqDetail.reject}</button>
-                    <span className="self-center text-xs text-slate-500">{t.rfqDetail.review[item.review_status as keyof typeof t.rfqDetail.review] ?? item.review_status}</span>
                   </div>
                 </div>
               </div>
@@ -361,7 +396,7 @@ export default function RfqDetail() {
                 <p className="label">{t.rfqDetail.reviewQueue}</p>
                 <h2 className="mt-3 text-lg font-bold">{t.rfqDetail.missing}</h2>
                 <div className="mt-4 space-y-3">
-                  {item.missing.length === 0 ? <p className="text-sm text-slate-500">{t.rfqDetail.noneMissing}</p> : item.missing.map((m) => (
+                  {visibleMissing.length === 0 ? <p className="text-sm text-slate-500">{t.rfqDetail.noneMissing}</p> : visibleMissing.map((m) => (
                     <div key={m} className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertCircle size={17} />{missingLabel(m)}</div>
                   ))}
                 </div>

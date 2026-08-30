@@ -4,6 +4,7 @@ import Link from "next/link";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import type { DemoRfq } from "@/lib/demo/data";
 import { useI18n } from "@/lib/i18n/provider";
+import { translateRequirement } from "@/lib/i18n/requirement";
 import type { Messages } from "@/lib/i18n/messages";
 
 function statusLabel(t: Messages, status: string) {
@@ -15,7 +16,9 @@ function missingLabel(t: Messages, item: string) {
 }
 
 export default function DemoRfqDetailView({ rfq }: { rfq: DemoRfq }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const requirement = translateRequirement(rfq.requirement, locale);
+  const reviewTone = rfq.status === "Needs Review" ? "bg-amber-500 text-white" : "bg-green-600 text-white";
 
   return (
     <div className="max-w-5xl">
@@ -32,13 +35,20 @@ export default function DemoRfqDetailView({ rfq }: { rfq: DemoRfq }) {
         <Metric label={t.demo.items} value={rfq.items} />
         <Metric label={t.demo.quantity} value={rfq.quantity} />
         <Metric label={t.demo.matchConfidence} value={`${rfq.confidence}%`} />
-        <Metric label={t.demo.reviewStatus} value={statusLabel(t, rfq.status)} />
+        <div className="border border-slate-200 bg-white p-4">
+          <p className="label">{t.demo.reviewStatus}</p>
+          <p className={`mt-2 inline-flex rounded-full px-3 py-1 text-sm font-bold ${reviewTone}`}>{statusLabel(t, rfq.status)}</p>
+        </div>
       </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="border border-slate-200 bg-white p-6">
           <p className="label">{t.demo.requirement}</p>
           <h2 className="mt-3 text-lg font-bold">{t.demo.customerReq}</h2>
-          <div className="mt-4 rounded-md bg-slate-50 p-4 text-sm font-medium leading-7">{rfq.requirement}<br />{t.demo.quantity}: {rfq.quantity}</div>
+          <div className="mt-4 rounded-md bg-slate-50 p-4 text-sm font-medium leading-7">
+            {requirement.text}
+            <br />{t.demo.quantity}: {rfq.quantity}
+            {requirement.changed && <p className="mt-3 text-xs font-normal leading-6 text-slate-500">{t.rfqDetail.original}: {requirement.original}</p>}
+          </div>
           <h2 className="mt-7 text-lg font-bold">{t.demo.matchedProduct}</h2>
           <div className="mt-4 flex items-start justify-between rounded-md border border-green-200 bg-green-50 p-4">
             <div>

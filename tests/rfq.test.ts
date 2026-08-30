@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { extractFromRows, extractFromText } from "@/lib/rfq/extract";
 import { matchItems, rfqStatus, scoreProduct } from "@/lib/rfq/match";
+import { looksEnglish, translateRequirement } from "@/lib/i18n/requirement";
 import { nextReference } from "@/lib/rfq/reference";
 import type { CatalogProduct } from "@/lib/rfq/types";
 
@@ -32,5 +35,30 @@ describe("rfq matching", () => {
 
   it("increments RFQ references", () => {
     expect(nextReference(["RFQ-2026-001", "RFQ-2026-003"], 2026)).toBe("RFQ-2026-004");
+  });
+
+  it("translates English customer requirements into the working language", () => {
+    const source = "500 pcs Ball Valve DN25 PN16 SS304, CE certificate and EN 10204 3.1, flanged";
+    expect(looksEnglish(source)).toBe(true);
+    const zh = translateRequirement(source, "zh");
+    expect(zh.changed).toBe(true);
+    expect(zh.text).toContain("球阀");
+    expect(zh.text).toContain("法兰连接");
+    expect(zh.text).toContain("CE 认证");
+    expect(zh.text).toContain("DN25");
+    expect(zh.original).toBe(source);
+    expect(translateRequirement(zh.text, "zh").changed).toBe(false);
+    expect(translateRequirement(source, "en").changed).toBe(false);
+  });
+
+  it("extracts the Nordland customer RFQ email", () => {
+    const text = readFileSync(resolve("sample-data/customer-rfq-nordland.txt"), "utf8");
+    const extracted = extractFromText(text);
+    expect(extracted.buyer).toMatch(/Nordland Process Equipment/);
+    expect(extracted.buyer_email).toBe("purchasing@nordland-process.test");
+    expect(extracted.items.length).toBeGreaterThanOrEqual(12);
+    const ballValve = extracted.items.find((item) => /ball valve/i.test(item.requirement));
+    expect(ballValve?.quantity).toBe(500);
+    expect(ballValve?.unit).toMatch(/pcs/i);
   });
 });
