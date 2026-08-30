@@ -16,6 +16,7 @@ export type Rfq = {
   source_type: string; source_filename: string | null; document_id: string | null; status: string;
   notes: string | null; created_by: string | null; created_at: string; updated_at: string;
   source_checksum: string | null; possible_duplicate_of: string | null;
+  extracted_header: Json; extraction_status: string;
 };
 export type RfqItem = {
   id: string; company_id: string; rfq_id: string; line_no: number; requirement: string;
@@ -23,6 +24,7 @@ export type RfqItem = {
   matched_product_id: string | null; matched_sku: string | null; confidence: number;
   missing: string[]; review_status: string; created_at: string;
   source_text: string | null; source_ref: string | null;
+  requested_sku: string | null; target_price: number | null; extract_confidence: number | null;
 };
 export type Quotation = {
   id: string; company_id: string; rfq_id: string; status: string; currency: string;
@@ -53,8 +55,8 @@ export type Database = {
       company_members: Table<{ id: string; company_id: string; user_id: string; role: string; created_at: string }, { company_id: string; user_id: string; role: string }, Partial<{ role: string }>>;
       product_imports: Table<{ id: string; company_id: string; filename: string; status: string; total_rows: number; imported_rows: number; failed_rows: number; mapping: Json; created_at: string; completed_at: string | null }, { company_id: string; filename: string; status: string; total_rows: number; imported_rows: number; failed_rows: number; mapping: Json }, Partial<{ status: string; completed_at: string | null }>>;
       documents: Table<{ id: string; company_id: string; storage_path: string; original_filename: string; mime_type: string; size_bytes: number; document_type: string; created_at: string; checksum: string | null; processing_status: string; page_count: number | null; ocr_used: boolean }, { company_id: string; storage_path: string; original_filename: string; mime_type: string; size_bytes: number; document_type: string; checksum?: string | null; processing_status?: string; page_count?: number | null; ocr_used?: boolean }, Partial<{ original_filename: string; checksum: string | null }>>;
-      rfqs: Table<Rfq, Omit<Rfq, "id" | "created_at" | "updated_at" | "buyer_email" | "source_checksum" | "possible_duplicate_of"> & { id?: string; created_at?: string; updated_at?: string; buyer_email?: string | null; source_checksum?: string | null; possible_duplicate_of?: string | null }, Partial<Rfq>>;
-      rfq_items: Table<RfqItem, Omit<RfqItem, "id" | "created_at" | "source_text" | "source_ref"> & { id?: string; created_at?: string; source_text?: string | null; source_ref?: string | null }, Partial<RfqItem>>;
+      rfqs: Table<Rfq, Omit<Rfq, "id" | "created_at" | "updated_at" | "buyer_email" | "source_checksum" | "possible_duplicate_of" | "extracted_header" | "extraction_status"> & { id?: string; created_at?: string; updated_at?: string; buyer_email?: string | null; source_checksum?: string | null; possible_duplicate_of?: string | null; extracted_header?: Json; extraction_status?: string }, Partial<Rfq>>;
+      rfq_items: Table<RfqItem, Omit<RfqItem, "id" | "created_at" | "source_text" | "source_ref" | "requested_sku" | "target_price" | "extract_confidence"> & { id?: string; created_at?: string; source_text?: string | null; source_ref?: string | null; requested_sku?: string | null; target_price?: number | null; extract_confidence?: number | null }, Partial<RfqItem>>;
       quotations: Table<Quotation, Omit<Quotation, "id" | "created_at" | "updated_at" | "sent_at" | "pdf_document_id" | "outcome" | "outcome_note" | "follow_up_due" | "last_followed_up_at"> & { id?: string; sent_at?: string | null; pdf_document_id?: string | null; outcome?: Quotation["outcome"]; outcome_note?: string | null; follow_up_due?: string | null; last_followed_up_at?: string | null }, Partial<Quotation>>;
       quotation_items: Table<QuotationItem, Omit<QuotationItem, "id"> & { id?: string }, Partial<QuotationItem>>;
       quotation_sends: Table<QuotationSend, Omit<QuotationSend, "id" | "created_at"> & { id?: string; created_at?: string }, Partial<QuotationSend>>;

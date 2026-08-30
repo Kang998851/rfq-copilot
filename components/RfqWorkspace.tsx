@@ -128,6 +128,8 @@ export default function RfqWorkspace() {
         status: rfqStatus(matched),
         source_checksum: checksum,
         possible_duplicate_of: duplicateId,
+        extracted_header: extracted.header,
+        extraction_status: extracted.extraction_status,
         created_by: session.user.id,
       }).select().single();
       if (rfqError || !rfq) throw new Error(rfqError?.message ?? t.rfqPage.fail);
@@ -147,6 +149,9 @@ export default function RfqWorkspace() {
         review_status: "pending",
         source_text: item.source_text ?? item.requirement,
         source_ref: item.source_ref ?? null,
+        requested_sku: item.requested_sku ?? null,
+        target_price: item.target_price ?? null,
+        extract_confidence: item.extract_confidence ?? null,
       })));
       if (itemsError) throw new Error(itemsError.message);
       router.push(`/rfqs/${rfq.id}`);

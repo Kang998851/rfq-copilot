@@ -11,8 +11,15 @@ import { COMPANY_PUBLIC_COLUMNS, readStoredMailbox } from "@/lib/quote/smtp";
 import { downloadAndStoreQuotePdf } from "@/lib/quote/save";
 import { formatMoney, quoteTotal } from "@/lib/quote/totals";
 import type { Company, Product, Quotation, QuotationItem, QuotationSend, Rfq, RfqItem } from "@/types/database";
+import type { ExtractedField, ExtractedHeader } from "@/lib/rfq/types";
+import { activityFromHeader, appendActivity, askBuyerQuestion, fieldStatus, headerWithActivity, needsLineReview, reviewsFromSpecs, setFieldStatus, specsWithReviews, visibleMissing } from "@/lib/rfq/review";
 import { useI18n } from "@/lib/i18n/provider";
 import { translateRequirement, translateUnit } from "@/lib/i18n/requirement";
+
+function headerField(header: ExtractedHeader | null | undefined, key: keyof ExtractedHeader): ExtractedField | null {
+  const field = header?.[key];
+  return field?.value ? field : null;
+}
 
 export default function RfqDetail() {
   const { t, locale } = useI18n();
@@ -134,9 +141,36 @@ export default function RfqDetail() {
   const missingLabel = (item: string) => t.rfqDetail.missingItems[item as keyof typeof t.rfqDetail.missingItems] ?? item;
   const total = quote ? quoteTotal(quoteItems) : null;
 
+  async function logActivity(action: string, detail: string) {
+    if (!rfq) return;
+    const next = appendActivity(activityFromHeader(rfq.extracted_header), action, detail);
+    const extracted_header = headerWithActivity(rfq.extracted_header, next);
+    await createClient().from("rfqs").update({ extracted_header, updated_at: new Date().toISOString() }).eq("id", rfq.id);
+    setRfq({ ...rfq, extracted_header });
+  }
+
+  async function setFieldReview(item: RfqItem, field: string, status: "approved" | "edited" | "missing" | "ignored") {
+    const reviews = setFieldStatus(reviewsFromSpecs(item.specs), field, status);
+    const specs = specsWithReviews(item.specs, reviews);
+    await createClient().from("rfq_items").update({ specs }).eq("id", item.id);
+    setItems((rows) => rows.map((row) => row.id === item.id ? { ...row, specs } : row));
+    await logActivity(status, `${t.rfqDetail.line} ${item.line_no} · ${field}`);
+  }
+
+  async function saveLine(item: RfqItem, requirement: string, quantity: string, unit: string) {
+    const qty = quantity.trim() === "" ? null : Number(quantity);
+    const reviews = setFieldStatus(reviewsFromSpecs(item.specs), "requirement", "edited");
+    const specs = specsWithReviews(item.specs, setFieldStatus(reviews, "quantity", "edited"));
+    const patch = { requirement: requirement.trim() || item.requirement, quantity: Number.isFinite(qty as number) ? qty : item.quantity, unit: unit.trim() || null, specs };
+    await createClient().from("rfq_items").update(patch).eq("id", item.id);
+    setItems((rows) => rows.map((row) => row.id === item.id ? { ...row, ...patch } : row));
+    await logActivity("edited", `${t.rfqDetail.line} ${item.line_no}`);
+  }
+
   async function setReview(item: RfqItem, review_status: string) {
     await createClient().from("rfq_items").update({ review_status }).eq("id", item.id);
     setItems((rows) => rows.map((row) => row.id === item.id ? { ...row, review_status } : row));
+    await logActivity(review_status, `${t.rfqDetail.line} ${item.line_no}`);
   }
 
   async function setMatch(item: RfqItem, productId: string) {
@@ -147,6 +181,7 @@ export default function RfqDetail() {
       confidence: product ? 90 : 0,
       review_status: "pending",
     }).eq("id", item.id);
+    await logActivity("match", `${t.rfqDetail.line} ${item.line_no} · ${product?.sku ?? "none"}`);
     await load();
   }
 
@@ -386,23 +421,84 @@ export default function RfqDetail() {
           <Link href={`/rfqs/${rfq.possible_duplicate_of}`} className="font-semibold text-blue-700">{rfq.possible_duplicate_of.slice(0, 8)}</Link>
         </div>
       )}
+      {rfq.extraction_status === "failed" && (
+        <div className="mb-6 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800">{t.rfqDetail.extractFailed}</div>
+      )}
 
       <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6">
-        <label className="label">{t.rfqDetail.buyerEmail}</label>
+        <h2 className="text-lg font-bold">{t.rfqDetail.buyerSummary}</h2>
+        <p className="mt-2 text-sm font-medium">{rfq.buyer_name}</p>
+        <label className="label mt-4">{t.rfqDetail.buyerEmail}</label>
         <div className="mt-2 flex flex-col gap-3 sm:flex-row">
           <input className="field" type="email" value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} onBlur={saveBuyerEmail} placeholder={t.rfqDetail.buyerEmailPlaceholder} />
           <button className="btn-secondary shrink-0" onClick={saveBuyerEmail}>{t.rfqDetail.saveEmail}</button>
         </div>
       </div>
 
+      <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-bold">{t.rfqDetail.document}</h2>
+        {rfq.source_filename ? (
+          <p className="mt-2 text-sm">{rfq.source_filename} · {rfq.source_type}{rfq.source_checksum ? ` · ${rfq.source_checksum.slice(0, 10)}` : ""}</p>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500">{t.rfqDetail.noDocument}</p>
+        )}
+      </div>
+
+      {(() => {
+        const header = (rfq.extracted_header ?? {}) as ExtractedHeader;
+        const rows: [keyof ExtractedHeader, string][] = [
+          ["phone", t.rfqDetail.phone],
+          ["rfq_number", t.rfqDetail.rfqNumber],
+          ["request_date", t.rfqDetail.requestDate],
+          ["currency", t.rfqDetail.currency],
+          ["incoterm", t.rfqDetail.incoterm],
+          ["delivery_location", t.rfqDetail.delivery],
+          ["deadline", t.rfqDetail.deadline],
+          ["payment_terms", t.rfqDetail.payment],
+          ["certification", t.rfqDetail.certification],
+          ["notes", t.rfqDetail.notes],
+        ];
+        const visible = rows.flatMap(([key, label]) => {
+          const field = headerField(header, key);
+          return field ? [[label, field] as const] : [];
+        });
+        if (!visible.length && rfq.extraction_status !== "ai") return null;
+        return (
+          <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-bold">{t.rfqDetail.headerTitle}</h2>
+              <span className="text-xs font-semibold uppercase text-slate-500">
+                {rfq.extraction_status === "ai" ? t.rfqDetail.extractAi : t.rfqDetail.extractHeuristic}
+              </span>
+            </div>
+            {visible.length ? (
+              <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+                {visible.map(([label, field]) => (
+                  <div key={label}>
+                    <dt className="label">{label}</dt>
+                    <dd className="mt-1 text-sm font-medium">{field.value}</dd>
+                    {field.source && <p className="mt-1 text-xs text-slate-500">{t.rfqDetail.source}: {field.source}</p>}
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="mt-3 text-sm text-slate-500">{t.rfqDetail.noneMissing}</p>
+            )}
+          </div>
+        );
+      })()}
+
+      <h2 className="mb-4 text-lg font-bold">{t.rfqDetail.lineItems}</h2>
       <div className="space-y-6">
         {items.map((item) => {
           const product = products.find((p) => p.id === item.matched_product_id);
           const review = item.review_status;
           const requirement = translateRequirement(item.requirement, locale);
-          const visibleMissing = review === "accepted"
+          const reviews = reviewsFromSpecs(item.specs);
+          const visibleMissingItems = visibleMissing(review === "accepted"
             ? item.missing.filter((m) => m !== "Match confirmation")
-            : item.missing;
+            : item.missing, reviews);
+          const lowExtract = needsLineReview(item.extract_confidence, review);
           const lineTone = review === "accepted"
             ? "border-green-500 bg-white ring-2 ring-green-100"
             : review === "rejected"
@@ -428,14 +524,37 @@ export default function RfqDetail() {
                   </span>
                 </div>
                 <h2 className="mt-3 text-lg font-bold">{t.rfqDetail.customerReq}</h2>
-                <div className="mt-4 rounded-md bg-white/80 p-4 text-sm font-medium leading-7">
-                  {requirement.text}
-                  <br />{t.rfqDetail.quantity}: {item.quantity ?? "—"} {translateUnit(item.unit, locale)}
+                <div className={`mt-4 rounded-md bg-white/80 p-4 text-sm font-medium leading-7 ${lowExtract ? "ring-2 ring-amber-300" : ""}`}>
+                  <textarea className="field min-h-20" defaultValue={item.requirement} id={`${item.id}-req`} />
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <input className="field" defaultValue={item.quantity ?? ""} id={`${item.id}-qty`} placeholder={t.rfqDetail.quantity} />
+                    <input className="field" defaultValue={item.unit ?? ""} id={`${item.id}-unit`} placeholder={t.rfqDetail.unit} />
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button className="btn-secondary" onClick={() => {
+                      const requirementValue = (document.getElementById(`${item.id}-req`) as HTMLTextAreaElement | null)?.value ?? item.requirement;
+                      const quantityValue = (document.getElementById(`${item.id}-qty`) as HTMLInputElement | null)?.value ?? "";
+                      const unitValue = (document.getElementById(`${item.id}-unit`) as HTMLInputElement | null)?.value ?? "";
+                      void saveLine(item, requirementValue, quantityValue, unitValue);
+                    }}>{t.rfqDetail.saveEdit}</button>
+                    <button className="btn-secondary" onClick={() => setFieldReview(item, "requirement", "approved")}>{t.rfqDetail.approveField}</button>
+                    <button className="btn-secondary" onClick={() => setFieldReview(item, "requirement", "missing")}>{t.rfqDetail.markMissing}</button>
+                    <button className="btn-secondary" onClick={() => setFieldReview(item, "requirement", "ignored")}>{t.rfqDetail.ignoreField}</button>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">{
+                    ({ pending: t.rfqDetail.fieldPending, approved: t.rfqDetail.fieldApproved, edited: t.rfqDetail.fieldEdited, missing: t.rfqDetail.fieldMissing, ignored: t.rfqDetail.fieldIgnored })[fieldStatus(reviews, "requirement")]
+                  }</p>
                   {requirement.changed && (
                     <p className="mt-3 text-xs font-normal leading-6 text-slate-500">{t.rfqDetail.original}: {requirement.original}</p>
                   )}
                   {item.source_ref && (
                     <p className="mt-3 text-xs font-normal leading-6 text-slate-500">{t.rfqDetail.source}: {item.source_ref}{item.source_text && item.source_text !== requirement.text ? ` · ${item.source_text}` : ""}</p>
+                  )}
+                  {item.target_price != null && (
+                    <p className="mt-3 text-xs font-normal leading-6 text-slate-500">{t.rfqDetail.askedPrice}: {item.target_price}</p>
+                  )}
+                  {item.extract_confidence != null && item.extract_confidence < 0.7 && (
+                    <p className="mt-3 text-xs font-semibold text-amber-800">{t.rfqDetail.lowExtract} ({Math.round(item.extract_confidence * 100)}%)</p>
                   )}
                 </div>
                 <h2 className="mt-7 text-lg font-bold">{t.rfqDetail.matchedProduct}</h2>
@@ -461,14 +580,37 @@ export default function RfqDetail() {
                 <p className="label">{t.rfqDetail.reviewQueue}</p>
                 <h2 className="mt-3 text-lg font-bold">{t.rfqDetail.missing}</h2>
                 <div className="mt-4 space-y-3">
-                  {visibleMissing.length === 0 ? <p className="text-sm text-slate-500">{t.rfqDetail.noneMissing}</p> : visibleMissing.map((m) => (
-                    <div key={m} className="flex items-center gap-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertCircle size={17} />{missingLabel(m)}</div>
+                  {visibleMissingItems.length === 0 ? <p className="text-sm text-slate-500">{t.rfqDetail.noneMissing}</p> : visibleMissingItems.map((m) => (
+                    <div key={m} className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      <div className="flex items-center gap-3"><AlertCircle size={17} />{missingLabel(m)}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button className="btn-secondary" onClick={async () => {
+                          await navigator.clipboard.writeText(askBuyerQuestion(item.line_no, missingLabel(m)));
+                          setMessage(t.rfqDetail.askedCopied);
+                          await logActivity("ask_buyer", `${t.rfqDetail.line} ${item.line_no} · ${m}`);
+                        }}>{t.rfqDetail.askBuyer}</button>
+                        <button className="btn-secondary" onClick={() => setFieldReview(item, m, "ignored")}>{t.rfqDetail.ignoreField}</button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
             </div>
           );
         })}
+      </div>
+
+      <div className="mt-8 rounded-lg border border-slate-200 bg-white p-6">
+        <h2 className="text-lg font-bold">{t.rfqDetail.activity}</h2>
+        <div className="mt-4 space-y-2">
+          {activityFromHeader(rfq.extracted_header).length === 0 ? (
+            <p className="text-sm text-slate-500">{t.rfqDetail.noActivity}</p>
+          ) : activityFromHeader(rfq.extracted_header).map((entry) => (
+            <p key={`${entry.at}-${entry.action}-${entry.detail}`} className="text-sm text-slate-600">
+              {new Date(entry.at).toLocaleString()} · {entry.action} · {entry.detail}
+            </p>
+          ))}
+        </div>
       </div>
 
       <div className="mt-8 rounded-lg border border-slate-200 bg-white p-6 print:border-0">

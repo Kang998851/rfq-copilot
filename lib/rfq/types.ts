@@ -15,6 +15,25 @@ export type CatalogProduct = {
   active?: boolean;
 };
 
+export type ExtractedField = {
+  value: string | null;
+  confidence: number;
+  source: string | null;
+};
+
+export type ExtractedHeader = {
+  phone: ExtractedField;
+  rfq_number: ExtractedField;
+  request_date: ExtractedField;
+  currency: ExtractedField;
+  incoterm: ExtractedField;
+  delivery_location: ExtractedField;
+  deadline: ExtractedField;
+  payment_terms: ExtractedField;
+  certification: ExtractedField;
+  notes: ExtractedField;
+};
+
 export type ExtractedItem = {
   requirement: string;
   quantity: number | null;
@@ -25,11 +44,21 @@ export type ExtractedItem = {
   category: string | null;
   source_text?: string | null;
   source_ref?: string | null;
+  requested_sku?: string | null;
+  target_price?: number | null;
+  requested_delivery?: string | null;
+  certification?: string | null;
+  notes?: string | null;
+  extract_confidence?: number | null;
 };
+
+export type ExtractionStatus = "heuristic" | "ai" | "failed";
 
 export type ExtractedRfq = {
   buyer: string;
   buyer_email?: string;
+  header: ExtractedHeader;
+  extraction_status: ExtractionStatus;
   items: ExtractedItem[];
 };
 

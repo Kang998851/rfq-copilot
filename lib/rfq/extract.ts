@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { ExtractedItem, ExtractedRfq } from "./types";
+import { asField, emptyHeader, extractHeader, mergeHeader, parseTargetPrice } from "./header";
+import type { ExtractedHeader, ExtractedItem, ExtractedRfq, ExtractionStatus } from "./types";
 
 const qtyPattern = /(\d[\d,]*(?:\.\d+)?)\s*(pcs|pc|pieces|units?|sets?|kg|ton|件|台|套)?/i;
 
@@ -35,6 +36,7 @@ export function extractFromRows(rows: Record<string, unknown>[]): ExtractedRfq {
     const text = [requirement, ...extra].filter(Boolean).join(" · ");
     if (!text) continue;
     const qty = parsed.quantity ?? (qtySource ? Number(String(qtySource).replace(/,/g, "")) : null);
+    const target = parseTargetPrice([map["target price"], map.budget, map.offer, text].filter(Boolean).join(" "));
     items.push({
       requirement: text,
       quantity: Number.isFinite(qty as number) ? qty : null,
@@ -45,6 +47,9 @@ export function extractFromRows(rows: Record<string, unknown>[]): ExtractedRfq {
       category: map.category || map.type || map["品类"] || null,
       source_text: text,
       source_ref: `row ${items.length + 2}`,
+      requested_sku: map.sku || map["requested sku"] || map["型号"] || null,
+      target_price: target,
+      extract_confidence: qty ? 0.8 : 0.55,
     });
   }
   const fields = rows.map((row) => Object.entries(row).reduce<Record<string, string>>((acc, [key, value]) => {
@@ -53,7 +58,8 @@ export function extractFromRows(rows: Record<string, unknown>[]): ExtractedRfq {
   }, {}));
   const email = fields.map((values) => values.email || values["buyer email"] || values["e mail"] || values["邮箱"] || "").find(Boolean) ?? "";
   const buyer = fields.map((values) => values.customer || values.buyer || values.company || values["客户"] || "").find(Boolean) ?? "";
-  return { buyer, buyer_email: email, items };
+  const blob = rows.map((row) => Object.values(row).join(" ")).join("\n");
+  return { buyer, buyer_email: email, header: extractHeader(blob), extraction_status: "heuristic", items };
 }
 
 export function extractFromText(text: string): ExtractedRfq {
@@ -86,15 +92,39 @@ export function extractFromText(text: string): ExtractedRfq {
       category: null,
       source_text: line,
       source_ref: lineNo > 0 ? `line ${lineNo}` : null,
+      requested_sku: /(?:sku|mpn|pn)[:\s]+([A-Z0-9._-]{3,})/i.exec(line)?.[1] ?? null,
+      target_price: parseTargetPrice(line),
+      extract_confidence: parsed.quantity ? 0.7 : 0.5,
     };
   }).filter((item) => item.requirement.length > 3);
 
-  return { buyer, buyer_email: extractBuyerEmail(text), items: items.slice(0, 50) };
+  return { buyer, buyer_email: extractBuyerEmail(text), header: extractHeader(text), extraction_status: "heuristic", items: items.slice(0, 50) };
 }
+
+const fieldSchema = z.union([
+  z.string(),
+  z.object({
+    value: z.string().nullable().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    source: z.string().nullable().optional(),
+  }),
+]).nullable().optional();
 
 export const extractedSchema = z.object({
   buyer: z.string(),
   buyer_email: z.string().optional().nullable(),
+  header: z.object({
+    phone: fieldSchema,
+    rfq_number: fieldSchema,
+    request_date: fieldSchema,
+    currency: fieldSchema,
+    incoterm: fieldSchema,
+    delivery_location: fieldSchema,
+    deadline: fieldSchema,
+    payment_terms: fieldSchema,
+    certification: fieldSchema,
+    notes: fieldSchema,
+  }).optional(),
   items: z.array(z.object({
     requirement: z.string().min(1),
     quantity: z.number().nullable(),
@@ -105,23 +135,70 @@ export const extractedSchema = z.object({
     category: z.string().nullable(),
     source_text: z.string().nullable().optional(),
     source_ref: z.string().nullable().optional(),
+    requested_sku: z.string().nullable().optional(),
+    target_price: z.number().nullable().optional(),
+    requested_delivery: z.string().nullable().optional(),
+    certification: z.string().nullable().optional(),
+    notes: z.string().nullable().optional(),
+    extract_confidence: z.number().min(0).max(1).optional().nullable(),
   })),
 });
 
-export async function extractWithAi(text: string): Promise<ExtractedRfq | null> {
+export function parseExtracted(data: unknown) {
+  return extractedSchema.safeParse(data);
+}
+
+function headerFromUnknown(header: z.infer<typeof extractedSchema>["header"] | undefined): ExtractedHeader {
+  const keys: (keyof ExtractedHeader)[] = ["phone", "rfq_number", "request_date", "currency", "incoterm", "delivery_location", "deadline", "payment_terms", "certification", "notes"];
+  const next = emptyHeader();
+  keys.forEach((key) => { next[key] = asField(header?.[key]); });
+  return next;
+}
+
+export function toExtracted(data: z.infer<typeof extractedSchema>, status: ExtractionStatus): ExtractedRfq {
+  return {
+    buyer: data.buyer,
+    buyer_email: data.buyer_email ?? undefined,
+    header: headerFromUnknown(data.header),
+    extraction_status: status,
+    items: data.items.map((item) => ({
+      ...item,
+      requested_sku: item.requested_sku ?? null,
+      target_price: item.target_price ?? null,
+      extract_confidence: item.extract_confidence ?? null,
+    })),
+  };
+}
+
+const extractPrompt = `Extract an industrial RFQ as structured JSON.
+Do not invent prices, SKUs, quantities, currency, incoterms, payment terms, or certifications.
+If a field is not stated, use null. target_price is only a customer-stated target or budget, never a selling price.
+Each header field may be a string or { value, confidence 0-1, source }.
+Return buyer company name and buyer email if present.
+
+`;
+
+async function requestAiExtract(text: string, extra = "") {
+  const { generateText, Output } = await import("ai");
+  const result = await generateText({
+    model: "openai/gpt-5.4",
+    output: Output.object({ schema: extractedSchema }),
+    prompt: `${extractPrompt}${extra}${text.slice(0, 12000)}`,
+  });
+  return parseExtracted(result.output);
+}
+
+export async function extractWithAi(text: string): Promise<ExtractedRfq | "failed" | null> {
   if (!process.env.AI_GATEWAY_API_KEY && !process.env.VERCEL_OIDC_TOKEN) return null;
   try {
-    const { generateText, Output } = await import("ai");
-    const result = await generateText({
-      model: "openai/gpt-5.4",
-      output: Output.object({ schema: extractedSchema }),
-      prompt: `Extract industrial RFQ line items from this customer request. Do not invent prices, SKUs, or commercial terms. If quantity is missing use null. Return buyer company name and buyer email if present.\n\n${text.slice(0, 12000)}`,
-    });
-    const output = extractedSchema.safeParse(result.output);
-    if (!output.success || !output.data.items.length) return null;
-    return { ...output.data, buyer_email: output.data.buyer_email ?? undefined };
+    let parsed = await requestAiExtract(text);
+    if (!parsed.success || !parsed.data.items.length) {
+      parsed = await requestAiExtract(text, `The previous JSON failed validation. Repair it to match the schema. Do not invent fields.\n\n`);
+    }
+    if (!parsed.success || !parsed.data.items.length) return "failed";
+    return toExtracted(parsed.data, "ai");
   } catch {
-    return null;
+    return "failed";
   }
 }
 
@@ -129,10 +206,15 @@ export function keepSourceTraces(primary: ExtractedRfq, fallback: ExtractedRfq):
   return {
     buyer: primary.buyer || fallback.buyer,
     buyer_email: primary.buyer_email || fallback.buyer_email || "",
+    header: mergeHeader(primary.header, fallback.header ?? emptyHeader()),
+    extraction_status: primary.extraction_status,
     items: (primary.items.length ? primary.items : fallback.items).map((item, i) => ({
       ...item,
       source_text: item.source_text || fallback.items[i]?.source_text || item.requirement,
       source_ref: item.source_ref || fallback.items[i]?.source_ref || null,
+      requested_sku: item.requested_sku ?? fallback.items[i]?.requested_sku ?? null,
+      target_price: item.target_price ?? fallback.items[i]?.target_price ?? null,
+      extract_confidence: item.extract_confidence ?? fallback.items[i]?.extract_confidence ?? null,
     })),
   };
 }
@@ -141,5 +223,6 @@ export async function extractRfq(input: { text?: string; rows?: Record<string, u
   const heuristic = input.rows?.length ? extractFromRows(input.rows) : extractFromText(input.text ?? "");
   const ai = input.text ? await extractWithAi(input.text) : null;
   if (!ai) return heuristic;
+  if (ai === "failed") return { ...heuristic, extraction_status: "failed" };
   return keepSourceTraces(ai, heuristic);
 }

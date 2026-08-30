@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { sha256Hex } from "@/lib/rfq/checksum";
-import { extractFromRows, extractFromText, keepSourceTraces } from "@/lib/rfq/extract";
+import { extractFromRows, extractFromText, keepSourceTraces, parseExtracted, toExtracted } from "@/lib/rfq/extract";
+import { emptyHeader, extractHeader, parseTargetPrice } from "@/lib/rfq/header";
+import { appendActivity, askBuyerQuestion, needsLineReview, setFieldStatus, visibleMissing } from "@/lib/rfq/review";
 import { messages } from "@/lib/i18n/messages";
 import { extractPdfText } from "@/lib/rfq/pdf-text";
 import { fileToContent, sourceTypeFromName } from "@/lib/rfq/parse";
@@ -93,11 +95,22 @@ trailer<< /Root 1 0 R >>
     const heuristic = extractFromText("Please quote 12 units of centrifugal pump 40mm");
     const merged = keepSourceTraces({
       buyer: "AI Buyer",
+      header: emptyHeader(),
+      extraction_status: "ai",
       items: [{ requirement: "centrifugal pump", quantity: 12, unit: "units", material: null, size: "40mm", model: null, category: null }],
     }, heuristic);
     expect(merged.buyer).toBe("AI Buyer");
     expect(merged.items[0].source_ref).toMatch(/^line /);
     expect(merged.items[0].source_text).toContain("centrifugal pump");
+  });
+
+  it("filters ignored missing fields and writes review activity", () => {
+    expect(visibleMissing(["Voltage", "Certificate Requirement"], { Voltage: "ignored" })).toEqual(["Certificate Requirement"]);
+    expect(setFieldStatus({}, "quantity", "approved").quantity).toBe("approved");
+    expect(askBuyerQuestion(3, "pressure rating")).toContain("item 3");
+    expect(needsLineReview(0.4, "pending")).toBe(true);
+    expect(needsLineReview(0.9, "accepted")).toBe(false);
+    expect(appendActivity([], "approved", "line 1")[0].action).toBe("approved");
   });
 
   it("keeps English and Chinese message keys in sync", () => {
@@ -108,6 +121,24 @@ trailer<< /Root 1 0 R >>
       );
     };
     expect(paths(messages.zh)).toEqual(paths(messages.en));
+  });
+
+  it("extracts stated header fields and refuses invented prices", () => {
+    const header = extractHeader("From: Nordland\nPhone: +49 40 555 010\nDelivery: Hamburg\nIncoterm: FOB Shanghai\nPayment: 30 days\nCurrency: EUR\nPlease quote 12 units of pump, CE certificate");
+    expect(header.incoterm.value).toBe("FOB");
+    expect(header.currency.value).toBe("EUR");
+    expect(header.phone.value).toContain("+49");
+    expect(header.certification.value).toMatch(/CE/i);
+    expect(parseTargetPrice("Please quote 12 units of pump")).toBeNull();
+    expect(parseTargetPrice("Target price: 18.5")).toBe(18.5);
+    expect(parseExtracted({ buyer: "x", items: [] }).success).toBe(true);
+    expect(parseExtracted({ buyer: "x" }).success).toBe(false);
+    const parsed = parseExtracted({
+      buyer: "Nordland",
+      items: [{ requirement: "pump", quantity: 12, unit: "units", material: null, size: null, model: null, category: null, target_price: 18.5 }],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(toExtracted(parsed.data, "ai").items[0].target_price).toBe(18.5);
   });
 
   it("extracts the Nordland customer RFQ email", () => {

@@ -1,5 +1,7 @@
 import { sha256Hex } from "../lib/rfq/checksum.ts";
-import { extractFromRows, extractFromText, keepSourceTraces } from "../lib/rfq/extract.ts";
+import { extractFromRows, extractFromText, keepSourceTraces, parseExtracted } from "../lib/rfq/extract.ts";
+import { emptyHeader, extractHeader, parseTargetPrice } from "../lib/rfq/header.ts";
+import { askBuyerQuestion, needsLineReview, visibleMissing } from "../lib/rfq/review.ts";
 import { messages } from "../lib/i18n/messages.ts";
 import { extractPdfText } from "../lib/rfq/pdf-text.ts";
 import { fileToContent, sourceTypeFromName } from "../lib/rfq/parse.ts";
@@ -52,6 +54,8 @@ assert(parsed.text === "", "image must not invent text");
 
 const merged = keepSourceTraces({
   buyer: "AI Buyer",
+  header: emptyHeader(),
+  extraction_status: "ai",
   items: [{ requirement: "centrifugal pump", quantity: 12, unit: "units", material: null, size: "40mm", model: null, category: null }],
 }, text);
 assert(merged.buyer === "AI Buyer", "AI buyer kept");
@@ -60,5 +64,15 @@ assert(/^line /.test(merged.items[0].source_ref ?? ""), "AI items keep heuristic
 const en = keyPaths(messages.en).join("\n");
 const zh = keyPaths(messages.zh).join("\n");
 assert(en === zh, "i18n keys must match");
+
+const header = extractHeader("Phone: +49 40 555 010\nIncoterm: FOB Shanghai\nCurrency: EUR\nPlease quote 12 units of pump, CE");
+assert(header.incoterm.value === "FOB", "incoterm");
+assert(header.currency.value === "EUR", "currency");
+assert(parseTargetPrice("Please quote 12 units") === null, "do not invent price");
+assert(parseTargetPrice("Target price: 18.5") === 18.5, "stated target price");
+assert(parseExtracted({ buyer: "x" }).success === false, "invalid JSON rejected");
+assert(visibleMissing(["Voltage", "CE"], { Voltage: "ignored" }).join() === "CE", "ignored missing hidden");
+assert(needsLineReview(0.4, "pending"), "low confidence needs review");
+assert(askBuyerQuestion(3, "pressure").includes("item 3"), "buyer question");
 
 console.log("rfq ingestion asserts: PASS");

@@ -1,10 +1,36 @@
 # RFQ Copilot Development Progress
 
 ## Current Phase
-PHASE 5 REAL RFQ INGESTION
+PHASE 7 REVIEW UI
+
+## PHASE 7 Review Center
+`/rfqs/[id]` now has buyer summary, source document, line items, missing info, matches, and activity
+Field actions: approve / edit / mark missing / ignore, stored on `rfq_items.specs.field_reviews`
+Activity: stored on `extracted_header.__activity` (no extra table; live schema already has that jsonb)
+Low extract confidence (< 0.70) is highlighted and stays Needs Review until accepted
+Ask Buyer copies a clarification question; does not auto-email
+Matching algorithm not rewritten
+Helper asserts include ignore-filter and buyer question
+Deployment: with this commit
+
+## PHASE 6 AI Extraction
+Production app was still the Phase 5 deploy until this commit. Schema already applied remotely as `phase6_ai_extraction`
+Schema applied remotely as `phase6_ai_extraction`
+`rfqs.extracted_header` jsonb (value / confidence / source per header field)
+`rfqs.extraction_status` heuristic | ai | failed
+`rfq_items.requested_sku`, `target_price` (customer-stated only), `extract_confidence`
+Zod `extractedSchema` + `parseExtracted`; invalid JSON is not written
+AI path: one repair retry; if both fail, status=`failed` and heuristic fields are kept
+Heuristic header: phone, RFQ number, currency, incoterm, delivery, deadline, payment, certification when labeled in text
+`target_price` is never copied into quotation `unit_price` (quotes still use catalog cost)
+UI: header card, failed banner, customer target price note, low extract-confidence highlight
+OCR / matching rewrite: NOT IN THIS PHASE
+Helper asserts: PASS
+Acceptance: PARTIAL PASS — structured header + validation/repair path exist. Live AI Gateway extraction not proven in this environment (no forced model call)
+Deployment: with this commit
 
 ## PHASE 5 Real RFQ Ingestion
-Production: https://rfq-copilot-one.vercel.app. Schema already applied remotely. App deploy follows this commit.
+Production: https://rfq-copilot-one.vercel.app — READY `dpl_5v8EydBsSdYDjTArwYtGYV8hFTCQ` commit `5a89f8a`
 Schema applied remotely as `phase5_rfq_ingestion` (`supabase/migrations/20260830000300_phase5_rfq_ingestion.sql`)
 `documents`: checksum, processing_status, page_count, ocr_used
 `rfqs`: source_checksum, possible_duplicate_of, source_type allows `image`
@@ -19,7 +45,9 @@ i18n: EN/ZH keys match (`noPdfText`, `noImageText`, `invalidFile`, `duplicateHin
 Helper asserts: PASS (`node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/assert-rfq-ingestion.ts`)
 `npm test` / vitest: ENVIRONMENT STALL (known)
 Acceptance: text PDF / spreadsheet / paste work with source traces and duplicate hint. Scanned PDF and images do not invent line items. OCR remains open
-Deployment: IN PROGRESS with this commit
+Deployment: READY `dpl_5v8EydBsSdYDjTArwYtGYV8hFTCQ` on https://rfq-copilot-one.vercel.app
+Homepage smoke: PASS (200)
+Runtime errors last 1h: none
 
 ## PHASE 1B SECURITY VERIFICATION
 
@@ -125,7 +153,7 @@ Known Issues: sitemap/robots hardcoded to https://rfq-copilot.vercel.app while l
 - PHASE 1A.1 exact versions: Next 15.5.24, xlsx 0.20.3, postcss 8.4.31 (Next nested) / 8.5.26 (project tree), sharp 0.35.4
 
 ## Current Status
-PHASE 5 PARTIAL PASS — real file ingestion (text PDF, checksum, source traces, duplicate hint, no invented OCR). OCR and two-company A/B remain open. Deploy in progress.
+PHASE 7 PARTIAL PASS — review center field actions and activity. Phase 6 extraction ships in the same deploy. Live AI Gateway still not proven.
 
 ## Completed
 - Project scaffold with Next.js App Router, TypeScript and Tailwind CSS
@@ -143,11 +171,11 @@ PHASE 5 PARTIAL PASS — real file ingestion (text PDF, checksum, source traces,
 - Created server-side-only `scripts/verify-phase1b.ts`; admin client is limited to fixture user create/delete, all authorization checks use publishable-key user sessions
 
 ## Currently Working On
-- Deploying Phase 5 RFQ ingestion; next Master Prompt item is deeper AI extraction / review / matching
+- Deploying Phase 6 extraction + Phase 7 review center
 
 ## Remaining
+- Product matching depth (Master Prompt item 6)
 - OCR for scans and photos (must not invent text; paste remains the fallback)
-- Deploy Phase 5 (this commit)
 - Complete two-company A/B isolation (`scripts/verify-tenant-isolation.sql` or `npm run verify:phase1b`) if a secret key is provided
 - Verify the sample CSV end-to-end through the browser flow
 
@@ -196,5 +224,5 @@ PHASE 5 PARTIAL PASS — real file ingestion (text PDF, checksum, source traces,
 - Application scaffold, app routes, components, import libraries, migration, sample data, tests, README
 
 ## Next Action
-- After this deploy: Master Prompt next item — deeper AI extraction / review / matching
+- After this deploy: Master Prompt item 6 — product matching
 - Optional leftover: two-company A/B if `SUPABASE_SECRET_KEY` is provided
