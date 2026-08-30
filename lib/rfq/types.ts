@@ -23,6 +23,8 @@ export type ExtractedItem = {
   size: string | null;
   model: string | null;
   category: string | null;
+  source_text?: string | null;
+  source_ref?: string | null;
 };
 
 export type ExtractedRfq = {
@@ -38,4 +40,4 @@ export type MatchedItem = ExtractedItem & {
   missing: string[];
 };
 
-export type SourceType = "pdf" | "excel" | "csv" | "email" | "text";
+export type SourceType = "pdf" | "excel" | "csv" | "email" | "text" | "image";

@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { extractFromRows, extractFromText } from "@/lib/rfq/extract";
+import { sha256Hex } from "@/lib/rfq/checksum";
+import { extractFromRows, extractFromText, keepSourceTraces } from "@/lib/rfq/extract";
+import { messages } from "@/lib/i18n/messages";
+import { extractPdfText } from "@/lib/rfq/pdf-text";
+import { fileToContent, sourceTypeFromName } from "@/lib/rfq/parse";
 import { matchItems, rfqStatus, scoreProduct } from "@/lib/rfq/match";
 import { looksEnglish, translateRequirement } from "@/lib/i18n/requirement";
 import { nextReference } from "@/lib/rfq/reference";
@@ -31,6 +35,8 @@ describe("rfq matching", () => {
     expect(extracted.buyer).toMatch(/Pacific Motion/);
     expect(extracted.items.length).toBeGreaterThan(0);
     expect(extracted.items[0].quantity).toBe(12);
+    expect(extracted.items[0].source_ref).toMatch(/^line /);
+    expect(extracted.items[0].source_text).toContain("centrifugal pump");
   });
 
   it("increments RFQ references", () => {
@@ -49,6 +55,59 @@ describe("rfq matching", () => {
     expect(zh.original).toBe(source);
     expect(translateRequirement(zh.text, "zh").changed).toBe(false);
     expect(translateRequirement(source, "en").changed).toBe(false);
+  });
+
+  it("extracts text from a text PDF and refuses to invent scan content", () => {
+    const stream = "BT /F1 12 Tf 72 720 Td (Ball Valve DN25 500 pcs) Tj ET";
+    const pdf = `%PDF-1.1
+1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj
+2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj
+3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>endobj
+4 0 obj<< /Length ${stream.length} >>stream
+${stream}
+endstream
+endobj
+trailer<< /Root 1 0 R >>
+%%EOF`;
+    const extracted = extractPdfText(new TextEncoder().encode(pdf));
+    expect(extracted.kind).toBe("text");
+    expect(extracted.text).toContain("Ball Valve DN25");
+    expect(extractPdfText(new TextEncoder().encode("%PDF-1.1 empty scan")).kind).toBe("empty");
+    expect(extractPdfText(new TextEncoder().encode("not a pdf")).kind).toBe("invalid");
+  });
+
+  it("keeps a stable checksum and labels spreadsheet sources", async () => {
+    const hex = await sha256Hex(new TextEncoder().encode("rfq"));
+    expect(hex).toHaveLength(64);
+    expect(hex).toBe(await sha256Hex(new TextEncoder().encode("rfq")));
+    const rows = extractFromRows([{ item: "Ball Valve DN25", quantity: "500", unit: "pcs" }]);
+    expect(rows.items[0].source_ref).toBe("row 2");
+    expect(rows.items[0].source_text).toContain("Ball Valve");
+    expect(sourceTypeFromName("scan.png", "image/png")).toBe("image");
+  });
+
+  it("does not invent text from images and keeps AI traces from the source file", async () => {
+    const parsed = await fileToContent(new File([new Uint8Array([137, 80, 78, 71])], "scan.png", { type: "image/png" }));
+    expect(parsed.extractKind).toBe("image");
+    expect(parsed.text).toBe("");
+    const heuristic = extractFromText("Please quote 12 units of centrifugal pump 40mm");
+    const merged = keepSourceTraces({
+      buyer: "AI Buyer",
+      items: [{ requirement: "centrifugal pump", quantity: 12, unit: "units", material: null, size: "40mm", model: null, category: null }],
+    }, heuristic);
+    expect(merged.buyer).toBe("AI Buyer");
+    expect(merged.items[0].source_ref).toMatch(/^line /);
+    expect(merged.items[0].source_text).toContain("centrifugal pump");
+  });
+
+  it("keeps English and Chinese message keys in sync", () => {
+    const paths = (value: unknown, prefix = ""): string[] => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return prefix ? [prefix] : [];
+      return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
+        paths(child, prefix ? `${prefix}.${key}` : key),
+      );
+    };
+    expect(paths(messages.zh)).toEqual(paths(messages.en));
   });
 
   it("extracts the Nordland customer RFQ email", () => {

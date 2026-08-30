@@ -43,6 +43,8 @@ export function extractFromRows(rows: Record<string, unknown>[]): ExtractedRfq {
       size: map.size || map["尺寸"] || map["规格"] || null,
       model: map.model || map["型号"] || null,
       category: map.category || map.type || map["品类"] || null,
+      source_text: text,
+      source_ref: `row ${items.length + 2}`,
     });
   }
   const fields = rows.map((row) => Object.entries(row).reduce<Record<string, string>>((acc, [key, value]) => {
@@ -73,6 +75,7 @@ export function extractFromText(text: string): ExtractedRfq {
   const source = itemLines.length ? itemLines : lines.slice(0, 12);
   const items: ExtractedItem[] = source.map((line) => {
     const parsed = parseQty(line);
+    const lineNo = lines.indexOf(line) + 1;
     return {
       requirement: line,
       quantity: parsed.quantity,
@@ -81,6 +84,8 @@ export function extractFromText(text: string): ExtractedRfq {
       size: /(dn\d+|\d+\s*mm|\d+\s*inch|\d+x\d+x[\d.]+)/i.exec(line)?.[0] ?? null,
       model: null,
       category: null,
+      source_text: line,
+      source_ref: lineNo > 0 ? `line ${lineNo}` : null,
     };
   }).filter((item) => item.requirement.length > 3);
 
@@ -98,6 +103,8 @@ export const extractedSchema = z.object({
     size: z.string().nullable(),
     model: z.string().nullable(),
     category: z.string().nullable(),
+    source_text: z.string().nullable().optional(),
+    source_ref: z.string().nullable().optional(),
   })),
 });
 
@@ -118,13 +125,21 @@ export async function extractWithAi(text: string): Promise<ExtractedRfq | null> 
   }
 }
 
+export function keepSourceTraces(primary: ExtractedRfq, fallback: ExtractedRfq): ExtractedRfq {
+  return {
+    buyer: primary.buyer || fallback.buyer,
+    buyer_email: primary.buyer_email || fallback.buyer_email || "",
+    items: (primary.items.length ? primary.items : fallback.items).map((item, i) => ({
+      ...item,
+      source_text: item.source_text || fallback.items[i]?.source_text || item.requirement,
+      source_ref: item.source_ref || fallback.items[i]?.source_ref || null,
+    })),
+  };
+}
+
 export async function extractRfq(input: { text?: string; rows?: Record<string, unknown>[] }): Promise<ExtractedRfq> {
   const heuristic = input.rows?.length ? extractFromRows(input.rows) : extractFromText(input.text ?? "");
   const ai = input.text ? await extractWithAi(input.text) : null;
   if (!ai) return heuristic;
-  return {
-    buyer: ai.buyer || heuristic.buyer,
-    buyer_email: ai.buyer_email || heuristic.buyer_email || "",
-    items: ai.items.length ? ai.items : heuristic.items,
-  };
+  return keepSourceTraces(ai, heuristic);
 }

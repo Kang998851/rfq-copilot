@@ -1,7 +1,43 @@
 # RFQ Copilot Development Progress
 
 ## Current Phase
-PHASE 4
+PHASE 5 REAL RFQ INGESTION
+
+## PHASE 5 Real RFQ Ingestion
+Production: https://rfq-copilot-one.vercel.app. Schema already applied remotely. App deploy follows this commit.
+Schema applied remotely as `phase5_rfq_ingestion` (`supabase/migrations/20260830000300_phase5_rfq_ingestion.sql`)
+`documents`: checksum, processing_status, page_count, ocr_used
+`rfqs`: source_checksum, possible_duplicate_of, source_type allows `image`
+`rfq_items`: source_text, source_ref
+Text PDF: extracts `Tj` / `TJ` literals (`lib/rfq/pdf-text.ts`). Empty/scan PDF is `empty` — file is stored, items are not guessed, paste is required
+Images: stored, not OCR'd. Analyze without paste is blocked
+Checksum: SHA-256 of file bytes. Same checksum sets `possible_duplicate_of` and shows an amber banner. Duplicate is not auto-deleted
+Source traces: spreadsheet `row N`, text `line N`; AI extract keeps heuristic traces via `keepSourceTraces`
+OCR: NOT DONE. No new OCR service. Scans and photos still need pasted text
+UI: workspace accepts images; detail shows source ref/text and duplicate link
+i18n: EN/ZH keys match (`noPdfText`, `noImageText`, `invalidFile`, `duplicateHint`, `rfqDetail.source`)
+Helper asserts: PASS (`node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/assert-rfq-ingestion.ts`)
+`npm test` / vitest: ENVIRONMENT STALL (known)
+Acceptance: text PDF / spreadsheet / paste work with source traces and duplicate hint. Scanned PDF and images do not invent line items. OCR remains open
+Deployment: IN PROGRESS with this commit
+
+## PHASE 1B SECURITY VERIFICATION
+
+## PHASE 1B Security Verification
+Production: already live at https://rfq-copilot-one.vercel.app (P4 deploy dpl_CFAUCQPKaobNrGZuS5G2pYoYovpV)
+All public business tables: RLS enabled (profiles, companies, company_members, products, product_imports, documents, rfqs, rfq_items, quotations, quotation_items, quotation_sends)
+Storage: `company-documents` is private; object policies require `is_company_member` on the first path folder
+Security-definer triggers: only `private.handle_new_user` and `private.handle_new_company_owner` (not in public)
+`is_company_member`: SECURITY INVOKER
+Browser client: publishable key only; no service-role in client bundles
+Supabase security advisor: WARN only — leaked password protection is off (https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection)
+Anon role: 0 product rows before grant harden; after harden, anon has no SELECT/TRUNCATE on public tables
+Non-member authenticated JWT: 0 rows on companies, products, rfqs, quotations, documents
+Grant harden applied: `harden_public_grants` — authenticated limited to SELECT/INSERT/UPDATE/DELETE; TRUNCATE revoked
+Two-company A/B fixture matrix: SCRIPT READY (`scripts/verify-tenant-isolation.sql`); live run incomplete (SET ROLE + temp table privilege). Throwaway users were cleaned; real profile count unchanged at 2
+Auth Admin signup script: still requires `SUPABASE_SECRET_KEY` (`npm run verify:phase1b`)
+Storage object A/B: NOT RUN (bucket currently empty)
+Acceptance: tenant read isolation verified for anon and non-members. Cross-company member A vs member B not yet proven with two live sessions.
 
 ## PHASE 4
 Quote follow-up pipeline: COMPLETE (sent quotes, 3-day reminder, overdue list, won/lost)
@@ -89,7 +125,7 @@ Known Issues: sitemap/robots hardcoded to https://rfq-copilot.vercel.app while l
 - PHASE 1A.1 exact versions: Next 15.5.24, xlsx 0.20.3, postcss 8.4.31 (Next nested) / 8.5.26 (project tree), sharp 0.35.4
 
 ## Current Status
-BLOCKED — SUPABASE_SECRET_KEY REQUIRED FOR ADMIN TEST FIXTURE SETUP
+PHASE 5 PARTIAL PASS — real file ingestion (text PDF, checksum, source traces, duplicate hint, no invented OCR). OCR and two-company A/B remain open. Deploy in progress.
 
 ## Completed
 - Project scaffold with Next.js App Router, TypeScript and Tailwind CSS
@@ -107,14 +143,18 @@ BLOCKED — SUPABASE_SECRET_KEY REQUIRED FOR ADMIN TEST FIXTURE SETUP
 - Created server-side-only `scripts/verify-phase1b.ts`; admin client is limited to fixture user create/delete, all authorization checks use publishable-key user sessions
 
 ## Currently Working On
-- Completing real Supabase verification; database and policy inspection passed, user isolation test is blocked by Auth email validation/rate limits
+- Deploying Phase 5 RFQ ingestion; next Master Prompt item is deeper AI extraction / review / matching
 
 ## Remaining
-- Complete two normal-user Auth signups and execute the A/B database and Storage isolation matrix
+- OCR for scans and photos (must not invent text; paste remains the fallback)
+- Deploy Phase 5 (this commit)
+- Complete two-company A/B isolation (`scripts/verify-tenant-isolation.sql` or `npm run verify:phase1b`) if a secret key is provided
 - Verify the sample CSV end-to-end through the browser flow
 
 ## Tests
-- import logic: PASS (5 passed, 0 failed, 5 total)
+- import logic: PASS (5 passed, 0 failed, 5 total) — last full vitest run before this slice
+- RFQ ingestion helper: PASS (text PDF, empty/invalid PDF, checksum, spreadsheet/text source refs, image does not invent text, AI source merge, i18n keys)
+- vitest `tests/rfq.test.ts`: NOT RUN this slice — `npm test` stalls in this environment
 - Auth/RLS/Storage two-user matrix: NOT VERIFIED (temporary test email rejected and signup rate-limited)
 - Phase 1B verification script: NOT RUN — `SUPABASE_SECRET_KEY` absent from environment
 
@@ -156,4 +196,5 @@ BLOCKED — SUPABASE_SECRET_KEY REQUIRED FOR ADMIN TEST FIXTURE SETUP
 - Application scaffold, app routes, components, import libraries, migration, sample data, tests, README
 
 ## Next Action
-- Provide `SUPABASE_SECRET_KEY` only through the server-side verification environment, then run `npm run verify:phase1b`
+- After this deploy: Master Prompt next item — deeper AI extraction / review / matching
+- Optional leftover: two-company A/B if `SUPABASE_SECRET_KEY` is provided

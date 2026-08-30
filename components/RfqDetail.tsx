@@ -380,6 +380,12 @@ export default function RfqDetail() {
         </div>
         <span className={`rounded-full px-4 py-1.5 text-sm font-bold ${rfqStatusTone}`}>{statusLabel(rfq.status)}</span>
       </div>
+      {rfq.possible_duplicate_of && (
+        <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          {t.rfqPage.duplicateHint}{" "}
+          <Link href={`/rfqs/${rfq.possible_duplicate_of}`} className="font-semibold text-blue-700">{rfq.possible_duplicate_of.slice(0, 8)}</Link>
+        </div>
+      )}
 
       <div className="mb-6 rounded-lg border border-slate-200 bg-white p-6">
         <label className="label">{t.rfqDetail.buyerEmail}</label>
@@ -427,6 +433,9 @@ export default function RfqDetail() {
                   <br />{t.rfqDetail.quantity}: {item.quantity ?? "—"} {translateUnit(item.unit, locale)}
                   {requirement.changed && (
                     <p className="mt-3 text-xs font-normal leading-6 text-slate-500">{t.rfqDetail.original}: {requirement.original}</p>
+                  )}
+                  {item.source_ref && (
+                    <p className="mt-3 text-xs font-normal leading-6 text-slate-500">{t.rfqDetail.source}: {item.source_ref}{item.source_text && item.source_text !== requirement.text ? ` · ${item.source_text}` : ""}</p>
                   )}
                 </div>
                 <h2 className="mt-7 text-lg font-bold">{t.rfqDetail.matchedProduct}</h2>
