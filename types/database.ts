@@ -20,7 +20,7 @@ export type Rfq = {
 };
 export type RfqItem = {
   id: string; company_id: string; rfq_id: string; line_no: number; requirement: string;
-  quantity: number | null; unit: string | null; specs: Record<string, string>;
+  quantity: number | null; unit: string | null; specs: Record<string, unknown>;
   matched_product_id: string | null; matched_sku: string | null; confidence: number;
   missing: string[]; review_status: string; created_at: string;
   source_text: string | null; source_ref: string | null;

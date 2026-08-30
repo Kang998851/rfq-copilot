@@ -36,13 +36,13 @@ export function appendActivity(log: ReviewActivity[] | null | undefined, action:
   return [{ at: new Date().toISOString(), action, detail }, ...(log ?? [])].slice(0, 40);
 }
 
-export function reviewsFromSpecs(specs: Record<string, string> | null | undefined): Record<string, string> {
-  const raw = specs && typeof specs === "object" ? (specs as Record<string, unknown>).field_reviews : null;
+export function reviewsFromSpecs(specs: Record<string, unknown> | null | undefined): Record<string, string> {
+  const raw = specs && typeof specs === "object" ? specs.field_reviews : null;
   return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, string> : {};
 }
 
-export function specsWithReviews(specs: Record<string, string> | null | undefined, reviews: Record<string, string>) {
-  return { ...(specs ?? {}), field_reviews: reviews } as Record<string, string>;
+export function specsWithReviews(specs: Record<string, unknown> | null | undefined, reviews: Record<string, string>) {
+  return { ...(specs ?? {}), field_reviews: reviews };
 }
 
 export function activityFromHeader(header: unknown): ReviewActivity[] {
