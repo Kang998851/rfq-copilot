@@ -10,6 +10,7 @@ import { fileToContent, sourceTypeFromName } from "../lib/rfq/parse.ts";
 import { saleFromMargin, saleFromMarkup, quoteCurrency, suggestUnitPrice } from "../lib/quote/pricing.ts";
 import { buildQuotePdf } from "../lib/quote/pdf.ts";
 import { quoteNumberFromRfq } from "../lib/quote/document.ts";
+import { buildQuoteEmail, listUnresolvedGaps } from "../lib/quote/email.ts";
 
 function assert(condition: unknown, message: string) {
   if (!condition) throw new Error(message);
@@ -69,6 +70,7 @@ assert(/^line /.test(merged.items[0].source_ref ?? ""), "AI items keep heuristic
 const en = keyPaths(messages.en).join("\n");
 const zh = keyPaths(messages.zh).join("\n");
 assert(en === zh, "i18n keys must match");
+assert(messages.en.rfqDetail.unresolvedWarn.includes("Unresolved RFQ fields remain"), "unresolved warn copy");
 
 const header = extractHeader("Phone: +49 40 555 010\nIncoterm: FOB Shanghai\nCurrency: EUR\nPlease quote 12 units of pump, CE");
 assert(header.incoterm.value === "FOB", "incoterm");
@@ -124,5 +126,37 @@ assert(pdfText.startsWith("%PDF-"), "pdf header");
 assert(pdfText.includes("QT-2026-001"), "quote number in pdf");
 assert(pdfText.includes("Incoterm: Not provided"), "do not invent incoterm");
 assert(pdfText.includes("Authorized signature"), "signature area");
+
+const emailItems = [{ sku: "VLV-002", name: "Ball Valve", quantity: 10, unit: "pcs", unit_price: 18.9, lead_time_days: 12 }];
+const unresolved = listUnresolvedGaps([{
+  line_no: 1,
+  review_status: "pending",
+  missing: ["Seat"],
+  requirement: "Ball Valve",
+  quantity: 10,
+  unit: "pcs",
+}]);
+const draftEmail = buildQuoteEmail({
+  locale: "en",
+  buyerName: "Buyer",
+  reference: "RFQ-2026-001",
+  quoteNumber: "QT-2026-001",
+  companyName: "Hengda",
+  currency: "USD",
+  items: emailItems,
+  unresolved,
+});
+assert(draftEmail.body.includes("Unresolved RFQ fields remain"), "unresolved warning in draft");
+assert(!draftEmail.body.includes("reviewed by our team"), "unresolved draft is not a confirmed offer");
+const firmEmail = buildQuoteEmail({
+  locale: "en",
+  buyerName: "Buyer",
+  reference: "RFQ-2026-001",
+  companyName: "Hengda",
+  currency: "USD",
+  items: emailItems,
+});
+assert(!firmEmail.body.includes("Unresolved RFQ fields remain"), "confirmed path has no unresolved warning");
+assert(firmEmail.body.includes("reviewed by our team"), "confirmed path keeps reviewed wording");
 
 console.log("rfq ingestion asserts: PASS");

@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { buildQuoteEmail, composeHref, isValidEmail } from "@/lib/quote/email";
+import { buildQuoteEmail, composeHref, isValidEmail, listUnresolvedGaps, type GapLine } from "@/lib/quote/email";
 import { buildFollowUpEmail, followUpDueFrom, isFollowUpOverdue } from "@/lib/quote/followup";
 import { COMPANY_PUBLIC_COLUMNS, readStoredMailbox } from "@/lib/quote/smtp";
 import { downloadAndStoreQuotePdf } from "@/lib/quote/save";
@@ -22,6 +22,7 @@ import {
 import type { Company, Product, Quotation, QuotationItem, QuotationSend, Rfq, RfqItem } from "@/types/database";
 import type { CatalogProduct, ExtractedField, ExtractedHeader } from "@/lib/rfq/types";
 import { filledSpecsFrom, liveMissing } from "@/lib/rfq/missing";
+import { quoteNumberFromRfq } from "@/lib/quote/document";
 import { candidatesFromSpecs } from "@/lib/rfq/match";
 import { activityFromHeader, appendActivity, askBuyerQuestion, fieldStatus, headerWithActivity, needsLineReview, reviewsFromSpecs, setFieldStatus, specsWithReviews, visibleMissing } from "@/lib/rfq/review";
 import { useI18n } from "@/lib/i18n/provider";
@@ -30,6 +31,20 @@ import { translateRequirement, translateUnit } from "@/lib/i18n/requirement";
 function headerField(header: ExtractedHeader | null | undefined, key: keyof ExtractedHeader): ExtractedField | null {
   const field = header?.[key];
   return field?.value ? field : null;
+}
+
+function gapLinesFrom(items: RfqItem[], products: Product[]): GapLine[] {
+  return items.map((item) => ({
+    line_no: item.line_no,
+    review_status: item.review_status,
+    missing: item.missing,
+    requirement: item.requirement,
+    quantity: item.quantity,
+    unit: item.unit,
+    specs: item.specs,
+    requested_sku: item.requested_sku,
+    product: (products.find((row) => row.id === item.matched_product_id) as CatalogProduct | undefined) ?? null,
+  }));
 }
 
 export default function RfqDetail() {
@@ -115,18 +130,22 @@ export default function RfqDetail() {
 
   useEffect(() => { load(); }, [id]);
 
+  const unresolved = useMemo(() => listUnresolvedGaps(gapLinesFrom(items, products)), [items, products]);
+
   const draft = useMemo(() => {
     if (!rfq || !quote) return { subject: "", body: "" };
     return buildQuoteEmail({
       locale,
       buyerName: rfq.buyer_name,
       reference: rfq.reference,
+      quoteNumber: quoteNumberFromRfq(rfq.reference),
       companyName: company?.name ?? "RFQ Copilot",
       contactName: company?.contact_name,
       currency: quote.currency,
       items: quoteItems,
+      unresolved,
     });
-  }, [rfq, quote, quoteItems, company, locale]);
+  }, [rfq, quote, quoteItems, company, locale, unresolved]);
 
   useEffect(() => {
     setSubject(draft.subject);
@@ -783,6 +802,9 @@ export default function RfqDetail() {
         <div className="mt-6 rounded-lg border border-slate-200 bg-white p-6">
           <h2 className="text-lg font-bold">{t.rfqDetail.emailTitle}</h2>
           <p className="mt-1 text-sm text-slate-500">{t.rfqDetail.emailLead}</p>
+          {unresolved.length > 0 && (
+            <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t.rfqDetail.unresolvedWarn}</div>
+          )}
           <div className="mt-5 space-y-4">
             <div>
               <label className="label">{t.rfqDetail.emailFrom}</label>
@@ -808,6 +830,7 @@ export default function RfqDetail() {
                 <a className={`btn-primary ${busy ? "pointer-events-none opacity-50" : ""}`} href={composeUrl} target="_blank" rel="noreferrer" onClick={openCompose}>{t.rfqDetail.sendEmail}</a>
               )}
               <button className="btn-secondary" onClick={copyEmail}>{t.rfqDetail.copyEmail}</button>
+              <button className="btn-secondary" onClick={() => emailAction("prepare")} disabled={busy}>{t.rfqDetail.sendLater}</button>
               <button className="btn-secondary" onClick={() => emailAction("mark_sent")} disabled={busy}>{t.rfqDetail.markSent}</button>
             </div>
             <p className="text-xs text-slate-500">

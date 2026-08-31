@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { messages } from "@/lib/i18n/messages";
-import { buildQuoteEmail, composeHref, isValidEmail } from "@/lib/quote/email";
+import { buildQuoteEmail, composeHref, isValidEmail, listUnresolvedGaps } from "@/lib/quote/email";
 import { buildGmailRaw } from "@/lib/gmail/message";
 import {
   buildImapSearch,
@@ -107,6 +107,8 @@ describe("quotation helpers", () => {
     expect(email.body).toContain("VLV-002");
     expect(email.body).toContain("Pacific Motion");
     expect(email.body).toContain("Sales Desk");
+    expect(email.body).toContain("reviewed by our team");
+    expect(email.body).not.toContain("Unresolved RFQ fields remain");
     expect(isValidEmail("buyer@customer.com")).toBe(true);
     expect(isValidEmail("not-an-email")).toBe(false);
     const gmail = composeHref("sales@gmail.com", "buyer@customer.com", "Quote", "Hello");
@@ -122,6 +124,41 @@ describe("quotation helpers", () => {
     expect(raw).toContain("sales@gmail.com");
     expect(raw).toContain("buyer@customer.com");
     expect(raw).toContain("Hello");
+  });
+
+  it("does not write a confirmed email when RFQ fields remain unresolved", () => {
+    const unresolved = listUnresolvedGaps([{
+      line_no: 1,
+      review_status: "pending",
+      missing: ["Seat"],
+      requirement: "Ball Valve",
+      quantity: 10,
+      unit: "pcs",
+    }]);
+    expect(unresolved.some((item) => item.includes("Seat"))).toBe(true);
+    const email = buildQuoteEmail({
+      locale: "en",
+      buyerName: "Pacific Motion Systems",
+      reference: "RFQ-2026-001",
+      quoteNumber: "QT-2026-001",
+      companyName: "Hengda",
+      currency: "USD",
+      items,
+      unresolved,
+    });
+    expect(email.subject).toContain("open points remain");
+    expect(email.body).toContain("Unresolved RFQ fields remain");
+    expect(email.body).toContain("item 1: Seat");
+    expect(email.body).not.toContain("reviewed by our team");
+    expect(email.body).toContain("not a fully confirmed offer");
+    expect(listUnresolvedGaps([{
+      line_no: 1,
+      review_status: "rejected",
+      missing: ["Seat"],
+      requirement: "Ball Valve",
+      quantity: 10,
+      unit: "pcs",
+    }])).toEqual([]);
   });
 
   it("extracts a buyer email from RFQ text", () => {

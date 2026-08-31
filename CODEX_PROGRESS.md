@@ -1,7 +1,15 @@
 # RFQ Copilot Development Progress
 
 ## Current Phase
-PHASE 11 PDF QUOTATION
+PHASE 12 EMAIL DRAFT
+
+## PHASE 12 Email Draft
+Existing send / copy / mailbox stay. Gmail/Outlook integration not rebuilt. PDF is not attached here.
+If missing specs remain, the draft subject/body say it is not a fully confirmed offer and include `Unresolved RFQ fields remain`
+Actions: edit the draft in place, Copy, Send later (saves `quotation_sends` status `prepared`). Send is still available; it is never automatic
+Quote must still be `ready` with prices filled before Send. Send later can save a draft without marking sent
+Helper asserts: unresolved body contains the warning; confirmed path does not
+Deployment: IN PROGRESS with this commit
 
 ## PHASE 11 PDF Quotation
 Existing A4 generator kept (no new PDF library)
@@ -12,7 +20,7 @@ Downloaded PDF uses Helvetica: CJK in the file may show as `?`. Print view keeps
 Does not invent incoterm, payment, or FX
 Email / public quote links / dedicated quote-number sequence not rewritten
 Helper asserts: QT number, missing incoterm, signature
-Deployment: IN PROGRESS with this commit
+Deployment: READY `dpl_5JfKT8VmSpYxrRSCFVFLfywzgNBb` commit `635606b` on https://rfq-copilot-one.vercel.app
 
 ## PHASE 10 Quote Engine
 Deterministic pricing in `lib/quote/pricing.ts` (cents rounding). No LLM math.
@@ -218,17 +226,17 @@ PHASE 11 PARTIAL PASS — quotation PDF now has terms, spec, signature, and opti
 - Created server-side-only `scripts/verify-phase1b.ts`; admin client is limited to fixture user create/delete, all authorization checks use publishable-key user sessions
 
 ## Currently Working On
-- Deploying Phase 11 PDF quotation
+- Deploying Phase 12 email draft
 
 ## Remaining
-- Email draft (Master Prompt item 10; already exists, do not rebuild)
+- Customers (Master Prompt item 11)
 - OCR for scans and photos (must not invent text; paste remains the fallback)
 - Complete two-company A/B isolation (`scripts/verify-tenant-isolation.sql` or `npm run verify:phase1b`) if a secret key is provided
 - Verify the sample CSV end-to-end through the browser flow
 
 ## Tests
 - import logic: PASS (5 passed, 0 failed, 5 total) — last full vitest run before this slice
-- RFQ ingestion helper: PASS (text PDF, empty/invalid PDF, checksum, spreadsheet/text source refs, image does not invent text, AI source merge, i18n keys)
+- RFQ ingestion helper: PASS (text PDF, empty/invalid PDF, checksum, spreadsheet/text source refs, image does not invent text, AI source merge, i18n keys, quote number, missing incoterm, unresolved email warning)
 - vitest `tests/rfq.test.ts`: NOT RUN this slice — `npm test` stalls in this environment
 - Auth/RLS/Storage two-user matrix: NOT VERIFIED (temporary test email rejected and signup rate-limited)
 - Phase 1B verification script: NOT RUN — `SUPABASE_SECRET_KEY` absent from environment
@@ -271,5 +279,5 @@ PHASE 11 PARTIAL PASS — quotation PDF now has terms, spec, signature, and opti
 - Application scaffold, app routes, components, import libraries, migration, sample data, tests, README
 
 ## Next Action
-- After this deploy: Master Prompt item 10 email draft (already exists; do not rebuild)
+- After this deploy: Master Prompt item 11 customers
 - Optional leftover: two-company A/B if `SUPABASE_SECRET_KEY` is provided
