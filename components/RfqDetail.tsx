@@ -11,7 +11,8 @@ import { COMPANY_PUBLIC_COLUMNS, readStoredMailbox } from "@/lib/quote/smtp";
 import { downloadAndStoreQuotePdf } from "@/lib/quote/save";
 import { formatMoney, quoteTotal } from "@/lib/quote/totals";
 import type { Company, Product, Quotation, QuotationItem, QuotationSend, Rfq, RfqItem } from "@/types/database";
-import type { ExtractedField, ExtractedHeader } from "@/lib/rfq/types";
+import type { CatalogProduct, ExtractedField, ExtractedHeader } from "@/lib/rfq/types";
+import { filledSpecsFrom, liveMissing } from "@/lib/rfq/missing";
 import { candidatesFromSpecs } from "@/lib/rfq/match";
 import { activityFromHeader, appendActivity, askBuyerQuestion, fieldStatus, headerWithActivity, needsLineReview, reviewsFromSpecs, setFieldStatus, specsWithReviews, visibleMissing } from "@/lib/rfq/review";
 import { useI18n } from "@/lib/i18n/provider";
@@ -45,6 +46,7 @@ export default function RfqDetail() {
   const [mailboxReady, setMailboxReady] = useState(false);
   const [mailboxEmail, setMailboxEmail] = useState("");
   const [replies, setReplies] = useState<Array<{ id: string; from: string; date: string; snippet: string }>>([]);
+  const [fillDraft, setFillDraft] = useState<Record<string, string>>({});
 
   async function load() {
     const supabase = createClient();
@@ -156,6 +158,26 @@ export default function RfqDetail() {
     await createClient().from("rfq_items").update({ specs }).eq("id", item.id);
     setItems((rows) => rows.map((row) => row.id === item.id ? { ...row, specs } : row));
     await logActivity(status, `${t.rfqDetail.line} ${item.line_no} · ${field}`);
+  }
+
+  async function fillMissing(item: RfqItem, label: string, value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    const filled = { ...filledSpecsFrom(item.specs), [label]: trimmed };
+    const reviews = setFieldStatus(reviewsFromSpecs(item.specs), label, "approved");
+    const specs: Record<string, unknown> = { ...specsWithReviews(item.specs, reviews), filled_specs: filled };
+    if (label === "Size") specs.size = trimmed;
+    if (label === "Material") specs.material = trimmed;
+    const missing = item.missing.filter((entry) => entry !== label);
+    await createClient().from("rfq_items").update({ specs, missing }).eq("id", item.id);
+    setItems((rows) => rows.map((row) => row.id === item.id ? { ...row, specs, missing } : row));
+    setFillDraft((draft) => {
+      const next = { ...draft };
+      delete next[`${item.id}:${label}`];
+      return next;
+    });
+    setMessage(t.rfqDetail.fillSaved);
+    await logActivity("filled", `${t.rfqDetail.line} ${item.line_no} · ${label}`);
   }
 
   async function saveLine(item: RfqItem, requirement: string, quantity: string, unit: string) {
@@ -496,9 +518,17 @@ export default function RfqDetail() {
           const review = item.review_status;
           const requirement = translateRequirement(item.requirement, locale);
           const reviews = reviewsFromSpecs(item.specs);
-          const visibleMissingItems = visibleMissing(review === "accepted"
+          const storedMissing = review === "accepted"
             ? item.missing.filter((m) => m !== "Match confirmation")
-            : item.missing, reviews);
+            : item.missing;
+          const visibleMissingItems = visibleMissing(liveMissing({
+            requirement: item.requirement,
+            quantity: item.quantity,
+            unit: item.unit,
+            specs: item.specs,
+            requested_sku: item.requested_sku,
+            missing: storedMissing,
+          }, (product as CatalogProduct | undefined) ?? null), reviews);
           const lowExtract = needsLineReview(item.extract_confidence, review);
           const lineTone = review === "accepted"
             ? "border-green-500 bg-white ring-2 ring-green-100"
@@ -609,6 +639,15 @@ export default function RfqDetail() {
                     <div key={m} className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                       <div className="flex items-center gap-3"><AlertCircle size={17} />{missingLabel(m)}</div>
                       <div className="mt-2 flex flex-wrap gap-2">
+                        <input
+                          className="field min-w-40 flex-1"
+                          value={fillDraft[`${item.id}:${m}`] ?? filledSpecsFrom(item.specs)[m] ?? ""}
+                          onChange={(e) => setFillDraft((draft) => ({ ...draft, [`${item.id}:${m}`]: e.target.value }))}
+                          placeholder={t.rfqDetail.fillPlaceholder}
+                        />
+                        <button className="btn-secondary" onClick={() => {
+                          void fillMissing(item, m, fillDraft[`${item.id}:${m}`] ?? filledSpecsFrom(item.specs)[m] ?? "");
+                        }}>{t.rfqDetail.fillManually}</button>
                         <button className="btn-secondary" onClick={async () => {
                           await navigator.clipboard.writeText(askBuyerQuestion(item.line_no, missingLabel(m)));
                           setMessage(t.rfqDetail.askedCopied);

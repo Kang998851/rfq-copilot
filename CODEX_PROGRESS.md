@@ -1,7 +1,18 @@
 # RFQ Copilot Development Progress
 
 ## Current Phase
-PHASE 8 PRODUCT MATCHING
+PHASE 9 MISSING SPEC DETECTION
+
+## PHASE 9 Missing Spec Detection
+Category templates: valve, pump, bearing, motor, fastener, fitting
+Flags specs the customer did not provide (Size, Pressure, Material, Connection, Seat, Certification, Voltage as applicable)
+Does not invent values
+UI: Fill manually / Ask buyer / Ignore on each missing spec
+Filled values stored in `specs.filled_specs`; that spec is removed from `missing`
+Detail page also merges category gaps live, so older RFQs show Seat/Connection without re-analyze
+Helper asserts: valve without details flags Seat; filled Seat is not flagged
+Quote engine not rewritten
+Deployment: IN PROGRESS with this commit
 
 ## PHASE 8 Product Matching
 Layered scoring: exact SKU, model, MPN, name, category, material, size, specification overlap, plus history boost
@@ -11,7 +22,7 @@ History: accepted lines boost a similar future match (+10). Does not rewrite cat
 AI semantic matching: NOT DONE (no extra model call in this slice)
 Helper asserts: exact SKU reason
 Acceptance: PARTIAL PASS — deterministic ranking and Top 3 UI. Semantic AI match still open
-Deployment: IN PROGRESS with this commit
+Deployment: READY `dpl_DSrVMgXj7vny8tEBYYnHAzWMFd8p` commit `859b372` on https://rfq-copilot-one.vercel.app
 
 ## PHASE 7 REVIEW UI
 
@@ -165,7 +176,7 @@ Known Issues: sitemap/robots hardcoded to https://rfq-copilot.vercel.app while l
 - PHASE 1A.1 exact versions: Next 15.5.24, xlsx 0.20.3, postcss 8.4.31 (Next nested) / 8.5.26 (project tree), sharp 0.35.4
 
 ## Current Status
-PHASE 8 PARTIAL PASS — layered Top 3 matching with reasons and confirm-before-quote. AI semantic match not done. Not deployed.
+PHASE 9 PARTIAL PASS — category missing-spec templates with fill/ask/ignore. Deploying with this commit.
 
 ## Completed
 - Project scaffold with Next.js App Router, TypeScript and Tailwind CSS
@@ -183,11 +194,10 @@ PHASE 8 PARTIAL PASS — layered Top 3 matching with reasons and confirm-before-
 - Created server-side-only `scripts/verify-phase1b.ts`; admin client is limited to fixture user create/delete, all authorization checks use publishable-key user sessions
 
 ## Currently Working On
-- Deploying Phase 8 matching
+- Deploying Phase 9 missing specs
 
 ## Remaining
-- Deploy Phase 8 (this commit)
-- Missing spec detection (Master Prompt item 7)
+- Quote engine (Master Prompt item 8; already exists, do not rebuild)
 - OCR for scans and photos (must not invent text; paste remains the fallback)
 - Complete two-company A/B isolation (`scripts/verify-tenant-isolation.sql` or `npm run verify:phase1b`) if a secret key is provided
 - Verify the sample CSV end-to-end through the browser flow
@@ -237,6 +247,5 @@ PHASE 8 PARTIAL PASS — layered Top 3 matching with reasons and confirm-before-
 - Application scaffold, app routes, components, import libraries, migration, sample data, tests, README
 
 ## Next Action
-- Commit/deploy Phase 8 only if asked
-- Then Master Prompt item 7: missing specs
+- After this deploy: Master Prompt item 8 quote engine (already exists; do not rebuild)
 - Optional leftover: two-company A/B if `SUPABASE_SECRET_KEY` is provided

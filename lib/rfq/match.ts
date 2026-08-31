@@ -1,3 +1,4 @@
+import { requiredMissing } from "./missing";
 import type { CatalogProduct, ExtractedItem, MatchCandidate, MatchedItem, MatchMemory } from "./types";
 
 function norm(value: string | null | undefined) {
@@ -143,6 +144,7 @@ export function detectMissing(item: ExtractedItem, product: CatalogProduct | nul
     }
   }
   if (!product) missing.push("Product Match");
+  missing.push(...requiredMissing(item, product));
   return [...new Set(missing)];
 }
 

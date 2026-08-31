@@ -1,5 +1,6 @@
 import { sha256Hex } from "../lib/rfq/checksum.ts";
 import { extractFromRows, extractFromText, keepSourceTraces, parseExtracted } from "../lib/rfq/extract.ts";
+import { requiredMissing } from "../lib/rfq/missing.ts";
 import { rankCandidates } from "../lib/rfq/match.ts";
 import { emptyHeader, extractHeader, parseTargetPrice } from "../lib/rfq/header.ts";
 import { askBuyerQuestion, needsLineReview, visibleMissing } from "../lib/rfq/review.ts";
@@ -82,5 +83,7 @@ const ranked = rankCandidates(
 );
 assert(ranked[0]?.sku === "VLV-002", "exact SKU ranks first");
 assert(ranked[0]?.reasons.includes("skuExact"), "SKU reason");
+assert(requiredMissing({ requirement: "Ball Valve", quantity: 1, unit: "pcs", material: null, size: null, model: null, category: "Valve" }, null).includes("Seat"), "valve seat missing");
+assert(!requiredMissing({ requirement: "Ball Valve", quantity: 1, unit: "pcs", material: null, size: null, model: null, category: "Valve" }, null, { Seat: "PTFE" }).includes("Seat"), "filled seat is not missing");
 
 console.log("rfq ingestion asserts: PASS");

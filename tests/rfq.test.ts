@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { sha256Hex } from "@/lib/rfq/checksum";
 import { extractFromRows, extractFromText, keepSourceTraces, parseExtracted, toExtracted } from "@/lib/rfq/extract";
 import { emptyHeader, extractHeader, parseTargetPrice } from "@/lib/rfq/header";
+import { liveMissing, requiredMissing } from "@/lib/rfq/missing";
 import { appendActivity, askBuyerQuestion, needsLineReview, setFieldStatus, visibleMissing } from "@/lib/rfq/review";
 import { messages } from "@/lib/i18n/messages";
 import { extractPdfText } from "@/lib/rfq/pdf-text";
@@ -30,6 +31,16 @@ describe("rfq matching", () => {
     expect(matched[0].matched_sku).toBe("VLV-002");
     expect(matched[0].missing).toContain("Certificate Requirement");
     expect(rfqStatus(matched)).toBe("needs_review");
+  });
+
+  it("flags category specs the customer did not provide", () => {
+    const item = { requirement: "Ball Valve", quantity: 10, unit: "pcs", material: null, size: null, model: null, category: "Valve" };
+    const missing = requiredMissing(item, catalog[0]);
+    expect(missing).toContain("Seat");
+    expect(missing).toContain("Connection Type");
+    expect(requiredMissing({ ...item, size: "DN25", material: "SS304", requirement: "Ball Valve DN25 PN16 SS304 flanged PTFE seat CE" }, catalog[0])).toEqual([]);
+    expect(requiredMissing(item, catalog[0], { Seat: "PTFE" })).not.toContain("Seat");
+    expect(liveMissing({ requirement: "Ball Valve", quantity: 10, unit: "pcs", specs: { category: "Valve" }, missing: [] }, catalog[0])).toContain("Seat");
   });
 
   it("ranks exact SKU first and returns top 3 with reasons", () => {
