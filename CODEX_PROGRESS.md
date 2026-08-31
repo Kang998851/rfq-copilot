@@ -1,7 +1,20 @@
 # RFQ Copilot Development Progress
 
 ## Current Phase
-PHASE 9 MISSING SPEC DETECTION
+PHASE 10 QUOTE ENGINE
+
+## PHASE 10 Quote Engine
+Deterministic pricing in `lib/quote/pricing.ts` (cents rounding). No LLM math.
+Methods: margin `cost / (1 - margin)`, markup `cost × (1 + markup)`, cost (margin 0), manual override
+Rule order: manual > product spec margin > category margin > company default
+Company rules in Settings, stored per company in this browser (`rfq-copilot-pricing:{companyId}`). No new database column
+Currency: customer header if present; otherwise company default labeled Suggested Default. Never silent USD-from-product as customer currency
+FX: if cost currency ≠ quote currency, unit price stays empty — rate is not invented
+Customer `target_price` is displayed as reference only and is never copied into `unit_price`
+Below-minimum margin blocks Mark ready
+PDF / email / versioning not rewritten
+Helper asserts: margin 18.9@20% = 23.63; FX blocked
+Deployment: IN PROGRESS with this commit
 
 ## PHASE 9 Missing Spec Detection
 Category templates: valve, pump, bearing, motor, fastener, fitting
@@ -12,7 +25,7 @@ Filled values stored in `specs.filled_specs`; that spec is removed from `missing
 Detail page also merges category gaps live, so older RFQs show Seat/Connection without re-analyze
 Helper asserts: valve without details flags Seat; filled Seat is not flagged
 Quote engine not rewritten
-Deployment: IN PROGRESS with this commit
+Deployment: READY `dpl_EfdzPTV1kQnfpdVTkmqgeHR1iR1Y` commit `57a468e` on https://rfq-copilot-one.vercel.app
 
 ## PHASE 8 Product Matching
 Layered scoring: exact SKU, model, MPN, name, category, material, size, specification overlap, plus history boost
@@ -176,7 +189,7 @@ Known Issues: sitemap/robots hardcoded to https://rfq-copilot.vercel.app while l
 - PHASE 1A.1 exact versions: Next 15.5.24, xlsx 0.20.3, postcss 8.4.31 (Next nested) / 8.5.26 (project tree), sharp 0.35.4
 
 ## Current Status
-PHASE 9 PARTIAL PASS — category missing-spec templates with fill/ask/ignore. Deploying with this commit.
+PHASE 10 PARTIAL PASS — deterministic margin/markup quote prices from catalog cost. Pricing rules are browser-local. Deploying with this commit.
 
 ## Completed
 - Project scaffold with Next.js App Router, TypeScript and Tailwind CSS
@@ -194,10 +207,10 @@ PHASE 9 PARTIAL PASS — category missing-spec templates with fill/ask/ignore. D
 - Created server-side-only `scripts/verify-phase1b.ts`; admin client is limited to fixture user create/delete, all authorization checks use publishable-key user sessions
 
 ## Currently Working On
-- Deploying Phase 9 missing specs
+- Deploying Phase 10 quote engine
 
 ## Remaining
-- Quote engine (Master Prompt item 8; already exists, do not rebuild)
+- PDF (Master Prompt item 9; already exists, do not rebuild)
 - OCR for scans and photos (must not invent text; paste remains the fallback)
 - Complete two-company A/B isolation (`scripts/verify-tenant-isolation.sql` or `npm run verify:phase1b`) if a secret key is provided
 - Verify the sample CSV end-to-end through the browser flow
@@ -247,5 +260,5 @@ PHASE 9 PARTIAL PASS — category missing-spec templates with fill/ask/ignore. D
 - Application scaffold, app routes, components, import libraries, migration, sample data, tests, README
 
 ## Next Action
-- After this deploy: Master Prompt item 8 quote engine (already exists; do not rebuild)
+- After this deploy: Master Prompt item 9 PDF (already exists; do not rebuild)
 - Optional leftover: two-company A/B if `SUPABASE_SECRET_KEY` is provided

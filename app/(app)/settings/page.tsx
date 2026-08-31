@@ -18,6 +18,16 @@ import {
   type SmtpPreset,
 } from "@/lib/quote/smtp";
 import type { Company } from "@/types/database";
+import {
+  CATEGORY_MARGIN_KEYS,
+  defaultPricingRules,
+  percentInput,
+  rateFromPercentInput,
+  readStoredPricing,
+  writeStoredPricing,
+  type PricingMethod,
+  type PricingRules,
+} from "@/lib/quote/pricing";
 
 const PRESETS: SmtpPreset[] = ["gmail", "outlook", "qq", "163", "custom"];
 
@@ -40,6 +50,7 @@ export default function Settings() {
   const [gmailEmail, setGmailEmail] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pricing, setPricing] = useState<PricingRules>(defaultPricingRules());
 
   const hint = useMemo(() => {
     if (preset === "gmail") return t.settings.mailboxHintGmail;
@@ -96,6 +107,7 @@ export default function Settings() {
         const next = data as Company;
         setCompany(next);
         setContactName(next.contact_name ?? "");
+        setPricing(readStoredPricing(next.id));
         if (!stored) {
           const email = next.contact_email || loginEmail;
           setContactEmail(email);
@@ -143,6 +155,7 @@ export default function Settings() {
       contact_name: contactName.trim() || null,
       contact_email: email || null,
     }).eq("id", company.id);
+    writeStoredPricing(company.id, pricing);
     setMessage(error ? t.settings.saveFail : mailbox ? t.settings.mailboxConnected : t.settings.saved);
     setBusy(false);
   }
@@ -300,6 +313,63 @@ export default function Settings() {
         )}
         <p className="text-xs leading-5 text-slate-500">{mailboxReady ? t.settings.mailboxConnected : t.settings.mailboxMissing}</p>
         <p className="text-xs leading-5 text-slate-500">{t.settings.mailboxPrivacy}</p>
+
+        <div className="border-t border-slate-100 pt-4">
+          <h2 className="text-base font-semibold">{t.settings.pricingTitle}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{t.settings.pricingLead}</p>
+          <p className="label mt-4">{t.settings.method}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(["margin", "markup"] as PricingMethod[]).map((method) => (
+              <button
+                key={method}
+                type="button"
+                className={`rounded-md border px-3 py-2 text-sm ${pricing.method === method ? "border-blue-600 bg-blue-50 font-semibold text-blue-800" : "border-slate-200 text-slate-600"}`}
+                onClick={() => setPricing((row) => ({ ...row, method }))}
+              >
+                {method === "margin" ? t.settings.methodMargin : t.settings.methodMarkup}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="label" htmlFor="default-margin">{t.settings.defaultMargin}</label>
+              <input id="default-margin" className="field" type="number" min="0" max="99" step="0.1" value={percentInput(pricing.default_margin)} onChange={(e) => setPricing((row) => ({ ...row, default_margin: rateFromPercentInput(e.target.value) }))} />
+            </div>
+            <div>
+              <label className="label" htmlFor="default-markup">{t.settings.defaultMarkup}</label>
+              <input id="default-markup" className="field" type="number" min="0" max="400" step="0.1" value={percentInput(pricing.default_markup)} onChange={(e) => setPricing((row) => ({ ...row, default_markup: rateFromPercentInput(e.target.value, 10) }))} />
+            </div>
+            <div>
+              <label className="label" htmlFor="minimum-margin">{t.settings.minimumMargin}</label>
+              <input id="minimum-margin" className="field" type="number" min="0" max="99" step="0.1" value={percentInput(pricing.minimum_margin)} onChange={(e) => setPricing((row) => ({ ...row, minimum_margin: rateFromPercentInput(e.target.value) }))} />
+            </div>
+          </div>
+          <p className="label mt-4">{t.settings.categoryMargins}</p>
+          <div className="mt-2 grid gap-3 sm:grid-cols-3">
+            {CATEGORY_MARGIN_KEYS.map((key) => (
+              <div key={key}>
+                <label className="label" htmlFor={`margin-${key}`}>{key}</label>
+                <input
+                  id={`margin-${key}`}
+                  className="field"
+                  type="number"
+                  min="0"
+                  max="99"
+                  step="0.1"
+                  value={percentInput(pricing.category_margins[key] ?? 0)}
+                  onChange={(e) => setPricing((row) => {
+                    const rate = rateFromPercentInput(e.target.value);
+                    const category_margins = { ...row.category_margins };
+                    if (rate === 0) delete category_margins[key];
+                    else category_margins[key] = rate;
+                    return { ...row, category_margins };
+                  })}
+                />
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs leading-5 text-slate-500">{t.settings.percentHint}</p>
+        </div>
 
         {gmailConfigured && (
           <div className="border-t border-slate-100 pt-4">

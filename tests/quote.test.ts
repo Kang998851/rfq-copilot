@@ -25,6 +25,13 @@ import {
 } from "@/lib/quote/smtp";
 import { buildQuotePdf } from "@/lib/quote/pdf";
 import { allPricesFilled, formatMoney, lineAmount, quoteTotal } from "@/lib/quote/totals";
+import {
+  belowMinimumMargin,
+  quoteCurrency,
+  saleFromMargin,
+  saleFromMarkup,
+  suggestUnitPrice,
+} from "@/lib/quote/pricing";
 import { extractBuyerEmail, extractFromRows, extractFromText } from "@/lib/rfq/extract";
 import { buildFollowUpEmail, followUpDueFrom, isFollowUpOverdue, pipelineBucket } from "@/lib/quote/followup";
 
@@ -45,6 +52,44 @@ describe("quotation helpers", () => {
     expect(allPricesFilled(items)).toBe(true);
     expect(allPricesFilled([{ quantity: 1, unit_price: null }])).toBe(false);
     expect(formatMoney(759, "USD")).toContain("759");
+  });
+
+  it("prices from cost with margin and markup, never from a customer target", () => {
+    expect(saleFromMargin(18.9, 0.2)).toBe(23.63);
+    expect(saleFromMarkup(18.9, 0.25)).toBe(23.63);
+    expect(saleFromMargin(18.9, 0)).toBe(18.9);
+    const rules = { method: "margin" as const, default_margin: 0.2, default_markup: 0, minimum_margin: 0.1, category_margins: { Valve: 0.25 } };
+    const valve = suggestUnitPrice({
+      cost: 18.9,
+      cost_currency: "USD",
+      quote_currency: "USD",
+      rules,
+      product: { category: "Valve", specifications: {} },
+    });
+    expect(valve.unit_price).toBe(25.2);
+    expect(valve.pricing.rule).toBe("category");
+    const productRule = suggestUnitPrice({
+      cost: 18.9,
+      cost_currency: "USD",
+      quote_currency: "USD",
+      rules,
+      product: { category: "Valve", specifications: { margin: "30" } },
+    });
+    expect(productRule.pricing.rule).toBe("product");
+    expect(productRule.unit_price).toBe(27);
+    const fx = suggestUnitPrice({
+      cost: 18.9,
+      cost_currency: "CNY",
+      quote_currency: "EUR",
+      rules,
+      product: { category: "Valve", specifications: {} },
+    });
+    expect(fx.unit_price).toBeNull();
+    expect(fx.pricing.fx_blocked).toBe(true);
+    expect(belowMinimumMargin(18.9, 19, 0.2)).toBe(true);
+    expect(quoteCurrency("EUR", "USD")).toEqual({ currency: "EUR", source: "customer" });
+    expect(quoteCurrency(null, "CNY")).toEqual({ currency: "CNY", source: "company_default" });
+    expect(quoteCurrency(null, null).source).toBe("company_default");
   });
 
   it("builds a reviewed quotation email", () => {

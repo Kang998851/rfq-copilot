@@ -7,6 +7,7 @@ import { askBuyerQuestion, needsLineReview, visibleMissing } from "../lib/rfq/re
 import { messages } from "../lib/i18n/messages.ts";
 import { extractPdfText } from "../lib/rfq/pdf-text.ts";
 import { fileToContent, sourceTypeFromName } from "../lib/rfq/parse.ts";
+import { saleFromMargin, saleFromMarkup, quoteCurrency, suggestUnitPrice } from "../lib/quote/pricing.ts";
 
 function assert(condition: unknown, message: string) {
   if (!condition) throw new Error(message);
@@ -85,5 +86,15 @@ assert(ranked[0]?.sku === "VLV-002", "exact SKU ranks first");
 assert(ranked[0]?.reasons.includes("skuExact"), "SKU reason");
 assert(requiredMissing({ requirement: "Ball Valve", quantity: 1, unit: "pcs", material: null, size: null, model: null, category: "Valve" }, null).includes("Seat"), "valve seat missing");
 assert(!requiredMissing({ requirement: "Ball Valve", quantity: 1, unit: "pcs", material: null, size: null, model: null, category: "Valve" }, null, { Seat: "PTFE" }).includes("Seat"), "filled seat is not missing");
+assert(saleFromMargin(18.9, 0.2) === 23.63, "margin sale");
+assert(saleFromMarkup(18.9, 0.25) === 23.63, "markup sale");
+assert(quoteCurrency(null, "CNY").source === "company_default", "suggested default currency");
+assert(suggestUnitPrice({
+  cost: 18.9,
+  cost_currency: "USD",
+  quote_currency: "EUR",
+  rules: { method: "margin", default_margin: 0.2, default_markup: 0, minimum_margin: 0, category_margins: {} },
+  product: { category: "Valve", specifications: {} },
+}).unit_price === null, "do not invent FX");
 
 console.log("rfq ingestion asserts: PASS");

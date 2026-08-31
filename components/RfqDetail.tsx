@@ -10,6 +10,15 @@ import { buildFollowUpEmail, followUpDueFrom, isFollowUpOverdue } from "@/lib/qu
 import { COMPANY_PUBLIC_COLUMNS, readStoredMailbox } from "@/lib/quote/smtp";
 import { downloadAndStoreQuotePdf } from "@/lib/quote/save";
 import { formatMoney, quoteTotal } from "@/lib/quote/totals";
+import {
+  belowMinimumMargin,
+  encodeLineNotes,
+  parseLineNotes,
+  quoteCurrency,
+  readStoredPricing,
+  realizedMargin,
+  suggestUnitPrice,
+} from "@/lib/quote/pricing";
 import type { Company, Product, Quotation, QuotationItem, QuotationSend, Rfq, RfqItem } from "@/types/database";
 import type { CatalogProduct, ExtractedField, ExtractedHeader } from "@/lib/rfq/types";
 import { filledSpecsFrom, liveMissing } from "@/lib/rfq/missing";
@@ -226,13 +235,16 @@ export default function RfqDetail() {
       setBusy(false);
       return;
     }
+    const customerCurrency = headerField((rfq.extracted_header ?? {}) as ExtractedHeader, "currency")?.value ?? null;
+    const money = quoteCurrency(customerCurrency, company?.default_currency);
+    const rules = readStoredPricing(rfq.company_id);
     let current = quote;
     if (!current) {
       const { data, error } = await supabase.from("quotations").insert({
         company_id: rfq.company_id,
         rfq_id: rfq.id,
         status: "draft",
-        currency: products.find((p) => p.id === usable[0].matched_product_id)?.currency || "USD",
+        currency: money.currency,
         notes: t.rfqDetail.humanNote,
       }).select().single();
       if (error || !data) {
@@ -253,9 +265,21 @@ export default function RfqDetail() {
       }).eq("id", current.id);
       current = { ...current, status: "draft", sent_at: null, outcome: "open", follow_up_due: null, last_followed_up_at: null };
     }
+    if (current && current.currency !== money.currency) {
+      await supabase.from("quotations").update({ currency: money.currency, updated_at: new Date().toISOString() }).eq("id", current.id);
+      current = { ...current, currency: money.currency };
+    }
     await supabase.from("quotation_items").delete().eq("quotation_id", current.id);
     const rows = usable.map((item) => {
       const product = products.find((p) => p.id === item.matched_product_id);
+      const priced = suggestUnitPrice({
+        cost: product?.cost ?? null,
+        cost_currency: product?.currency ?? null,
+        quote_currency: money.currency,
+        rules,
+        product: { category: product?.category, specifications: product?.specifications },
+      });
+      const pricing = { ...priced.pricing, moq: product?.moq ?? null };
       return {
         company_id: rfq.company_id,
         quotation_id: current!.id,
@@ -264,9 +288,9 @@ export default function RfqDetail() {
         name: product?.name ?? item.requirement,
         quantity: item.quantity,
         unit: item.unit ?? product?.unit,
-        unit_price: product?.cost ?? null,
+        unit_price: priced.unit_price,
         lead_time_days: product?.lead_time_days ?? null,
-        notes: product?.cost == null ? t.rfqDetail.noPrice : null,
+        notes: encodeLineNotes(pricing, priced.unit_price == null ? t.rfqDetail.noPrice : ""),
       };
     });
     const { error: itemError } = await supabase.from("quotation_items").insert(rows);
@@ -280,14 +304,27 @@ export default function RfqDetail() {
   }
 
   async function savePrice(item: QuotationItem, unit_price: number | null) {
-    await createClient().from("quotation_items").update({ unit_price, notes: unit_price == null ? t.rfqDetail.noPrice : null }).eq("id", item.id);
-    setQuoteItems((rows) => rows.map((row) => row.id === item.id ? { ...row, unit_price } : row));
+    const parsed = parseLineNotes(item.notes);
+    const pricing = {
+      ...(parsed.pricing ?? { cost: null, cost_currency: null, moq: null, method: "manual" as const, rule: "manual" as const, suggested: null, fx_blocked: false }),
+      method: "manual" as const,
+      rule: "manual" as const,
+    };
+    const notes = encodeLineNotes(pricing, unit_price == null ? t.rfqDetail.noPrice : parsed.human);
+    await createClient().from("quotation_items").update({ unit_price, notes }).eq("id", item.id);
+    setQuoteItems((rows) => rows.map((row) => row.id === item.id ? { ...row, unit_price, notes } : row));
   }
 
   async function markReady() {
     if (!quote) return;
     if (quoteItems.some((item) => item.unit_price == null)) {
       setMessage(t.rfqDetail.needPrices);
+      return;
+    }
+    const rules = readStoredPricing(rfq?.company_id ?? "");
+    const low = quoteItems.some((item) => belowMinimumMargin(parseLineNotes(item.notes).pricing?.cost ?? null, item.unit_price, rules.minimum_margin));
+    if (low) {
+      setMessage(t.rfqDetail.needsApproval);
       return;
     }
     await createClient().from("quotations").update({ status: "ready", updated_at: new Date().toISOString() }).eq("id", quote.id);
@@ -422,6 +459,7 @@ export default function RfqDetail() {
             ? "bg-blue-600 text-white"
             : "bg-slate-700 text-white";
   const quoteStatus = quote?.status === "sent" ? t.rfqDetail.sentLabel : quote?.status === "ready" ? t.rfqDetail.ready : t.rfqDetail.draft;
+  const money = quoteCurrency(headerField((rfq.extracted_header ?? {}) as ExtractedHeader, "currency")?.value, company?.default_currency);
   const senderEmail = gmailEmail || mailboxEmail || company?.contact_email || userEmail;
   const mailboxConnected = mailboxReady || gmailConnected;
   const canSend = mailboxConnected || isValidEmail(senderEmail);
@@ -693,28 +731,48 @@ export default function RfqDetail() {
         {message && <p className="mt-3 text-sm text-slate-600">{message}</p>}
         {quote && (
           <div className="mt-5 overflow-x-auto">
-            <p className="mb-3 text-xs font-semibold uppercase text-slate-500">{quoteStatus} · {quote.currency} · {t.rfqDetail.total} {formatMoney(total, quote.currency)}</p>
-            <table className="w-full min-w-[640px] text-left text-sm">
+            <p className="mb-3 text-xs font-semibold uppercase text-slate-500">
+              {quoteStatus} · {quote.currency} · {money.source === "customer" ? t.rfqDetail.customerCurrency : t.rfqDetail.suggestedCurrency} · {t.rfqDetail.total} {formatMoney(total, quote.currency)}
+            </p>
+            <table className="w-full min-w-[880px] text-left text-sm">
               <thead className="border-b text-xs uppercase text-slate-500">
                 <tr>
                   <th className="px-2 py-2">SKU</th>
                   <th className="px-2 py-2">{t.rfqDetail.name}</th>
                   <th className="px-2 py-2">{t.rfqDetail.quantity}</th>
+                  <th className="px-2 py-2">{t.rfqDetail.moq}</th>
+                  <th className="px-2 py-2">{t.rfqDetail.cost}</th>
                   <th className="px-2 py-2">{t.rfqDetail.unitPrice}</th>
+                  <th className="px-2 py-2">{t.rfqDetail.margin}</th>
                   <th className="px-2 py-2">{t.rfqDetail.lead}</th>
                 </tr>
               </thead>
-              <tbody>{quoteItems.map((item) => (
-                <tr key={item.id} className="border-b">
-                  <td className="px-2 py-2 font-mono text-xs">{item.sku}</td>
-                  <td className="px-2 py-2">{item.name}</td>
-                  <td className="px-2 py-2">{item.quantity} {item.unit}</td>
-                  <td className="px-2 py-2">
-                    <input className="field w-28" type="number" value={item.unit_price ?? ""} onChange={(e) => savePrice(item, e.target.value === "" ? null : Number(e.target.value))} />
-                  </td>
-                  <td className="px-2 py-2">{item.lead_time_days ?? "—"}</td>
-                </tr>
-              ))}</tbody>
+              <tbody>{quoteItems.map((item) => {
+                const rfqItem = items.find((row) => row.id === item.rfq_item_id);
+                const pricing = parseLineNotes(item.notes).pricing;
+                const margin = realizedMargin(pricing?.cost ?? null, item.unit_price);
+                const moqWarn = pricing?.moq != null && item.quantity != null && item.quantity < pricing.moq;
+                return (
+                  <tr key={item.id} className="border-b align-top">
+                    <td className="px-2 py-2 font-mono text-xs">{item.sku}</td>
+                    <td className="px-2 py-2">
+                      {item.name}
+                      {rfqItem?.target_price != null && (
+                        <p className="mt-1 text-xs text-slate-500">{t.rfqDetail.targetPriceRef} {formatMoney(rfqItem.target_price, quote.currency)}</p>
+                      )}
+                      {pricing?.fx_blocked && <p className="mt-1 text-xs text-amber-800">{t.rfqDetail.fxBlocked}</p>}
+                    </td>
+                    <td className="px-2 py-2">{item.quantity} {item.unit}</td>
+                    <td className={`px-2 py-2 ${moqWarn ? "font-semibold text-amber-800" : ""}`}>{pricing?.moq ?? "—"}</td>
+                    <td className="px-2 py-2">{pricing?.cost != null ? formatMoney(pricing.cost, pricing.cost_currency || quote.currency) : "—"}</td>
+                    <td className="px-2 py-2">
+                      <input className="field w-28" type="number" value={item.unit_price ?? ""} onChange={(e) => savePrice(item, e.target.value === "" ? null : Number(e.target.value))} />
+                    </td>
+                    <td className="px-2 py-2">{margin == null ? "—" : `${Math.round(margin * 1000) / 10}%`}</td>
+                    <td className="px-2 py-2">{item.lead_time_days ?? "—"}</td>
+                  </tr>
+                );
+              })}</tbody>
             </table>
             <p className="mt-4 text-xs text-slate-500">{t.rfqDetail.humanNote}</p>
           </div>
