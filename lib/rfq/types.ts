@@ -62,11 +62,33 @@ export type ExtractedRfq = {
   items: ExtractedItem[];
 };
 
+export type MatchMemory = {
+  requirement: string;
+  sku: string;
+};
+
+export type MatchCandidate = {
+  product_id: string;
+  sku: string;
+  name: string;
+  model: string | null;
+  material: string | null;
+  size: string | null;
+  cost: number | null;
+  currency: string;
+  moq: number | null;
+  lead_time_days: number | null;
+  confidence: number;
+  reasons: string[];
+};
+
 export type MatchedItem = ExtractedItem & {
   matched_product_id: string | null;
   matched_sku: string | null;
   confidence: number;
   missing: string[];
+  match_reasons?: string[];
+  candidates?: MatchCandidate[];
 };
 
 export type SourceType = "pdf" | "excel" | "csv" | "email" | "text" | "image";

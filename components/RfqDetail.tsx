@@ -12,6 +12,7 @@ import { downloadAndStoreQuotePdf } from "@/lib/quote/save";
 import { formatMoney, quoteTotal } from "@/lib/quote/totals";
 import type { Company, Product, Quotation, QuotationItem, QuotationSend, Rfq, RfqItem } from "@/types/database";
 import type { ExtractedField, ExtractedHeader } from "@/lib/rfq/types";
+import { candidatesFromSpecs } from "@/lib/rfq/match";
 import { activityFromHeader, appendActivity, askBuyerQuestion, fieldStatus, headerWithActivity, needsLineReview, reviewsFromSpecs, setFieldStatus, specsWithReviews, visibleMissing } from "@/lib/rfq/review";
 import { useI18n } from "@/lib/i18n/provider";
 import { translateRequirement, translateUnit } from "@/lib/i18n/requirement";
@@ -563,16 +564,40 @@ export default function RfqDetail() {
                     <div>
                       <p className="text-sm font-semibold">{product ? `${product.sku} · ${product.name}` : t.rfqDetail.noMatch}</p>
                       <p className="mt-1 text-xs">{t.rfqDetail.confidenceScore} {item.confidence}%</p>
+                      {product && (
+                        <p className="mt-1 text-xs text-slate-600">
+                          {[product.model, product.material, product.size, product.cost != null ? `${product.cost} ${product.currency}` : null, product.moq != null ? `${t.rfqDetail.moq} ${product.moq}` : null, product.lead_time_days != null ? `${t.rfqDetail.lead} ${product.lead_time_days}` : null].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
                     </div>
                     {review === "accepted" && product && <CheckCircle2 className="text-green-700" size={20} />}
                   </div>
+                  {review !== "accepted" && <p className="mt-2 text-xs font-semibold text-amber-800">{t.rfqDetail.confirmNeeded}</p>}
+                  {candidatesFromSpecs(item.specs).length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      <p className="label">{t.rfqDetail.topMatches}</p>
+                      {candidatesFromSpecs(item.specs).map((candidate) => (
+                        <button
+                          key={candidate.product_id}
+                          className={`w-full rounded-md border p-3 text-left text-sm ${item.matched_product_id === candidate.product_id ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"}`}
+                          onClick={() => setMatch(item, candidate.product_id)}
+                        >
+                          <p className="font-semibold">{candidate.sku} · {candidate.name} · {candidate.confidence}%</p>
+                          <p className="mt-1 text-xs text-slate-600">{[candidate.model, candidate.material, candidate.size, candidate.cost != null ? `${candidate.cost} ${candidate.currency}` : null].filter(Boolean).join(" · ")}</p>
+                          <p className="mt-1 text-xs text-slate-500">{candidate.reasons.map((reason) => t.rfqDetail.matchReasons[reason as keyof typeof t.rfqDetail.matchReasons] ?? reason).join(" · ")}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <select className="field mt-3" value={item.matched_product_id ?? ""} onChange={(e) => setMatch(item, e.target.value)}>
                     <option value="">{t.rfqDetail.changeMatch}</option>
                     {products.map((p) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
                   </select>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button className={review === "accepted" ? "btn-secondary" : "btn-primary"} onClick={() => setReview(item, "accepted")}>{t.rfqDetail.accept}</button>
+                    <button className={review === "accepted" ? "btn-secondary" : "btn-primary"} onClick={() => setReview(item, "accepted")} disabled={!item.matched_product_id}>{t.rfqDetail.accept}</button>
                     <button className="btn-secondary" onClick={() => setReview(item, "rejected")}>{t.rfqDetail.reject}</button>
+                    <button className="btn-secondary" onClick={() => setMatch(item, "")}>{t.rfqDetail.clearMatch}</button>
+                    <Link href="/products/new" className="btn-secondary">{t.rfqDetail.createProduct}</Link>
                   </div>
                 </div>
               </div>

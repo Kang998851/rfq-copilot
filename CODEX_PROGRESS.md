@@ -1,7 +1,19 @@
 # RFQ Copilot Development Progress
 
 ## Current Phase
-PHASE 7 REVIEW UI
+PHASE 8 PRODUCT MATCHING
+
+## PHASE 8 Product Matching
+Layered scoring: exact SKU, model, MPN, name, category, material, size, specification overlap, plus history boost
+Top 3 candidates stored on `rfq_items.specs.match_candidates` with reason codes
+Human must confirm a match before it is accepted; No match, manual catalog pick, and create-product remain
+History: accepted lines boost a similar future match (+10). Does not rewrite catalog or matching rules
+AI semantic matching: NOT DONE (no extra model call in this slice)
+Helper asserts: exact SKU reason
+Acceptance: PARTIAL PASS — deterministic ranking and Top 3 UI. Semantic AI match still open
+Deployment: IN PROGRESS with this commit
+
+## PHASE 7 REVIEW UI
 
 ## PHASE 7 Review Center
 `/rfqs/[id]` now has buyer summary, source document, line items, missing info, matches, and activity
@@ -153,7 +165,7 @@ Known Issues: sitemap/robots hardcoded to https://rfq-copilot.vercel.app while l
 - PHASE 1A.1 exact versions: Next 15.5.24, xlsx 0.20.3, postcss 8.4.31 (Next nested) / 8.5.26 (project tree), sharp 0.35.4
 
 ## Current Status
-PHASE 7 PARTIAL PASS — review center field actions and activity. Phase 6 extraction ships in the same deploy. Live AI Gateway still not proven.
+PHASE 8 PARTIAL PASS — layered Top 3 matching with reasons and confirm-before-quote. AI semantic match not done. Not deployed.
 
 ## Completed
 - Project scaffold with Next.js App Router, TypeScript and Tailwind CSS
@@ -171,10 +183,11 @@ PHASE 7 PARTIAL PASS — review center field actions and activity. Phase 6 extra
 - Created server-side-only `scripts/verify-phase1b.ts`; admin client is limited to fixture user create/delete, all authorization checks use publishable-key user sessions
 
 ## Currently Working On
-- Deploying Phase 6 extraction + Phase 7 review center
+- Deploying Phase 8 matching
 
 ## Remaining
-- Product matching depth (Master Prompt item 6)
+- Deploy Phase 8 (this commit)
+- Missing spec detection (Master Prompt item 7)
 - OCR for scans and photos (must not invent text; paste remains the fallback)
 - Complete two-company A/B isolation (`scripts/verify-tenant-isolation.sql` or `npm run verify:phase1b`) if a secret key is provided
 - Verify the sample CSV end-to-end through the browser flow
@@ -224,5 +237,6 @@ PHASE 7 PARTIAL PASS — review center field actions and activity. Phase 6 extra
 - Application scaffold, app routes, components, import libraries, migration, sample data, tests, README
 
 ## Next Action
-- After this deploy: Master Prompt item 6 — product matching
+- Commit/deploy Phase 8 only if asked
+- Then Master Prompt item 7: missing specs
 - Optional leftover: two-company A/B if `SUPABASE_SECRET_KEY` is provided

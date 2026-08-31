@@ -8,7 +8,7 @@ import { appendActivity, askBuyerQuestion, needsLineReview, setFieldStatus, visi
 import { messages } from "@/lib/i18n/messages";
 import { extractPdfText } from "@/lib/rfq/pdf-text";
 import { fileToContent, sourceTypeFromName } from "@/lib/rfq/parse";
-import { matchItems, rfqStatus, scoreProduct } from "@/lib/rfq/match";
+import { matchItems, rankCandidates, rfqStatus, scoreProduct } from "@/lib/rfq/match";
 import { looksEnglish, translateRequirement } from "@/lib/i18n/requirement";
 import { nextReference } from "@/lib/rfq/reference";
 import type { CatalogProduct } from "@/lib/rfq/types";
@@ -30,6 +30,17 @@ describe("rfq matching", () => {
     expect(matched[0].matched_sku).toBe("VLV-002");
     expect(matched[0].missing).toContain("Certificate Requirement");
     expect(rfqStatus(matched)).toBe("needs_review");
+  });
+
+  it("ranks exact SKU first and returns top 3 with reasons", () => {
+    const extra: CatalogProduct = { ...catalog[1], id: "3", sku: "VLV-099", name: "Gate Valve", model: "GV-25", material: "SS304", size: "DN25", category: "Valve" };
+    const item = { requirement: "Please quote SKU VLV-002 ball valve DN25 SS304", quantity: 10, unit: "pcs", material: "SS304", size: "DN25", model: null, category: "Valve", requested_sku: "VLV-002" };
+    const ranked = rankCandidates(item, [...catalog, extra]);
+    expect(ranked[0].sku).toBe("VLV-002");
+    expect(ranked[0].reasons).toContain("skuExact");
+    expect(ranked.length).toBeLessThanOrEqual(3);
+    const learned = matchItems([item], catalog, [{ requirement: "ball valve DN25 SS304", sku: "VLV-002" }]);
+    expect(learned[0].match_reasons).toContain("history");
   });
 
   it("extracts quantity from free text", () => {

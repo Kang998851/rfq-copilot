@@ -1,5 +1,6 @@
 import { sha256Hex } from "../lib/rfq/checksum.ts";
 import { extractFromRows, extractFromText, keepSourceTraces, parseExtracted } from "../lib/rfq/extract.ts";
+import { rankCandidates } from "../lib/rfq/match.ts";
 import { emptyHeader, extractHeader, parseTargetPrice } from "../lib/rfq/header.ts";
 import { askBuyerQuestion, needsLineReview, visibleMissing } from "../lib/rfq/review.ts";
 import { messages } from "../lib/i18n/messages.ts";
@@ -74,5 +75,12 @@ assert(parseExtracted({ buyer: "x" }).success === false, "invalid JSON rejected"
 assert(visibleMissing(["Voltage", "CE"], { Voltage: "ignored" }).join() === "CE", "ignored missing hidden");
 assert(needsLineReview(0.4, "pending"), "low confidence needs review");
 assert(askBuyerQuestion(3, "pressure").includes("item 3"), "buyer question");
+
+const ranked = rankCandidates(
+  { requirement: "SKU VLV-002 ball valve DN25 SS304", quantity: 10, unit: "pcs", material: "SS304", size: "DN25", model: null, category: "Valve", requested_sku: "VLV-002" },
+  [{ id: "1", sku: "VLV-002", name: "Ball Valve", model: "BV220-25", material: "SS304", size: "DN25", category: "Valve", cost: 18.9, currency: "USD", moq: 20, lead_time_days: 12, unit: "pcs", specifications: { pressure: "PN16" }, active: true }],
+);
+assert(ranked[0]?.sku === "VLV-002", "exact SKU ranks first");
+assert(ranked[0]?.reasons.includes("skuExact"), "SKU reason");
 
 console.log("rfq ingestion asserts: PASS");

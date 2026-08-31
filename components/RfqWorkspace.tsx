@@ -92,7 +92,9 @@ export default function RfqWorkspace() {
       if (!extracted.items.length) throw new Error(t.rfqPage.noItems);
 
       const { data: products } = await supabase.from("products").select("*").eq("active", true);
-      const matched = matchItems(extracted.items, (products ?? []) as CatalogProduct[]);
+      const { data: history } = await supabase.from("rfq_items").select("requirement, matched_sku, review_status").eq("review_status", "accepted").not("matched_sku", "is", null).limit(80);
+      const memory = (history ?? []).flatMap((row: { requirement: string; matched_sku: string | null }) => row.matched_sku ? [{ requirement: row.requirement, sku: row.matched_sku }] : []);
+      const matched = matchItems(extracted.items, (products ?? []) as CatalogProduct[], memory);
       const { data: existing } = await supabase.from("rfqs").select("reference");
       const reference = nextReference((existing ?? []).map((r: { reference: string }) => r.reference));
 
@@ -141,7 +143,7 @@ export default function RfqWorkspace() {
         requirement: item.requirement,
         quantity: item.quantity,
         unit: item.unit,
-        specs: { material: item.material ?? "", size: item.size ?? "", model: item.model ?? "" },
+        specs: { material: item.material ?? "", size: item.size ?? "", model: item.model ?? "", match_reasons: item.match_reasons ?? [], match_candidates: item.candidates ?? [] },
         matched_product_id: item.matched_product_id,
         matched_sku: item.matched_sku,
         confidence: item.confidence,
