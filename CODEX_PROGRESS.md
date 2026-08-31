@@ -1,7 +1,18 @@
 # RFQ Copilot Development Progress
 
 ## Current Phase
-PHASE 10 QUOTE ENGINE
+PHASE 11 PDF QUOTATION
+
+## PHASE 11 PDF Quotation
+Existing A4 generator kept (no new PDF library)
+Adds quote number `QT-` from RFQ reference, valid-until, incoterm/payment/delivery (Not provided if missing), specification, signature area, optional logo/accent/footer/terms
+Company branding stored per company in this browser (`rfq-copilot-branding:{companyId}`)
+Multi-page when there are many lines
+Downloaded PDF uses Helvetica: CJK in the file may show as `?`. Print view keeps full Unicode
+Does not invent incoterm, payment, or FX
+Email / public quote links / dedicated quote-number sequence not rewritten
+Helper asserts: QT number, missing incoterm, signature
+Deployment: IN PROGRESS with this commit
 
 ## PHASE 10 Quote Engine
 Deterministic pricing in `lib/quote/pricing.ts` (cents rounding). No LLM math.
@@ -14,7 +25,7 @@ Customer `target_price` is displayed as reference only and is never copied into 
 Below-minimum margin blocks Mark ready
 PDF / email / versioning not rewritten
 Helper asserts: margin 18.9@20% = 23.63; FX blocked
-Deployment: IN PROGRESS with this commit
+Deployment: READY `dpl_FawkqVwq7m7A7qy4VqebZMHJnfAg` commit `5c46c33` on https://rfq-copilot-one.vercel.app
 
 ## PHASE 9 Missing Spec Detection
 Category templates: valve, pump, bearing, motor, fastener, fitting
@@ -189,7 +200,7 @@ Known Issues: sitemap/robots hardcoded to https://rfq-copilot.vercel.app while l
 - PHASE 1A.1 exact versions: Next 15.5.24, xlsx 0.20.3, postcss 8.4.31 (Next nested) / 8.5.26 (project tree), sharp 0.35.4
 
 ## Current Status
-PHASE 10 PARTIAL PASS — deterministic margin/markup quote prices from catalog cost. Pricing rules are browser-local. Deploying with this commit.
+PHASE 11 PARTIAL PASS — quotation PDF now has terms, spec, signature, and optional branding. CJK in the downloaded file is limited. Deploying with this commit.
 
 ## Completed
 - Project scaffold with Next.js App Router, TypeScript and Tailwind CSS
@@ -207,10 +218,10 @@ PHASE 10 PARTIAL PASS — deterministic margin/markup quote prices from catalog 
 - Created server-side-only `scripts/verify-phase1b.ts`; admin client is limited to fixture user create/delete, all authorization checks use publishable-key user sessions
 
 ## Currently Working On
-- Deploying Phase 10 quote engine
+- Deploying Phase 11 PDF quotation
 
 ## Remaining
-- PDF (Master Prompt item 9; already exists, do not rebuild)
+- Email draft (Master Prompt item 10; already exists, do not rebuild)
 - OCR for scans and photos (must not invent text; paste remains the fallback)
 - Complete two-company A/B isolation (`scripts/verify-tenant-isolation.sql` or `npm run verify:phase1b`) if a secret key is provided
 - Verify the sample CSV end-to-end through the browser flow
@@ -260,5 +271,5 @@ PHASE 10 PARTIAL PASS — deterministic margin/markup quote prices from catalog 
 - Application scaffold, app routes, components, import libraries, migration, sample data, tests, README
 
 ## Next Action
-- After this deploy: Master Prompt item 9 PDF (already exists; do not rebuild)
+- After this deploy: Master Prompt item 10 email draft (already exists; do not rebuild)
 - Optional leftover: two-company A/B if `SUPABASE_SECRET_KEY` is provided

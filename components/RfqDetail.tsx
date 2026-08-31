@@ -337,7 +337,7 @@ export default function RfqDetail() {
     setBusy(true);
     setMessage("");
     try {
-      await downloadAndStoreQuotePdf({ rfq, quote, items: quoteItems, company, copy: t.quoteDoc });
+      await downloadAndStoreQuotePdf({ rfq, quote, items: quoteItems, rfqItems: items, company, copy: t.quoteDoc });
       setMessage(t.rfqDetail.pdfSaved);
     } catch {
       setMessage(t.rfqDetail.pdfFail);

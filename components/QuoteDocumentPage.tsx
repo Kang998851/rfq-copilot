@@ -6,8 +6,9 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { downloadAndStoreQuotePdf } from "@/lib/quote/save";
 import { useI18n } from "@/lib/i18n/provider";
-import type { Company, Quotation, QuotationItem, Rfq } from "@/types/database";
+import type { Company, Quotation, QuotationItem, Rfq, RfqItem } from "@/types/database";
 import QuotationDocument from "./QuotationDocument";
+import { readStoredBranding, type QuoteBranding } from "@/lib/quote/branding";
 
 export default function QuoteDocumentPage() {
   const { t } = useI18n();
@@ -15,7 +16,9 @@ export default function QuoteDocumentPage() {
   const [rfq, setRfq] = useState<Rfq | null>(null);
   const [quote, setQuote] = useState<Quotation | null>(null);
   const [items, setItems] = useState<QuotationItem[]>([]);
+  const [rfqItems, setRfqItems] = useState<RfqItem[]>([]);
   const [company, setCompany] = useState<Company | null>(null);
+  const [branding, setBranding] = useState<QuoteBranding | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -31,6 +34,9 @@ export default function QuoteDocumentPage() {
       if (rfqData) {
         const { data: companyData } = await supabase.from("companies").select("id, name, country, industry, website, default_currency, contact_email, contact_name").eq("id", rfqData.company_id).single();
         setCompany(companyData as Company | null);
+        if (companyData) setBranding(readStoredBranding(companyData.id));
+        const { data: lineData } = await supabase.from("rfq_items").select("*").eq("rfq_id", id).order("line_no");
+        setRfqItems((lineData ?? []) as RfqItem[]);
       }
       if (quoteData) {
         const { data: qItems } = await supabase.from("quotation_items").select("*").eq("quotation_id", quoteData.id);
@@ -44,7 +50,7 @@ export default function QuoteDocumentPage() {
     setBusy(true);
     setMessage("");
     try {
-      await downloadAndStoreQuotePdf({ rfq, quote, items, company, copy: t.quoteDoc });
+      await downloadAndStoreQuotePdf({ rfq, quote, items, rfqItems, company, copy: t.quoteDoc });
       setMessage(t.rfqDetail.pdfSaved);
     } catch {
       setMessage(t.rfqDetail.pdfFail);
@@ -73,7 +79,7 @@ export default function QuoteDocumentPage() {
       </div>
       {message && <p className="mb-4 text-sm text-slate-600 print:hidden">{message}</p>}
       <div className="overflow-auto border border-slate-200 bg-white shadow-sm print:border-0 print:shadow-none">
-        <QuotationDocument company={company} rfq={rfq} quote={quote} items={items} copy={t.quoteDoc} />
+        <QuotationDocument company={company} rfq={rfq} quote={quote} items={items} rfqItems={rfqItems} branding={branding} copy={t.quoteDoc} />
       </div>
     </div>
   );

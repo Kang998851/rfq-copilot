@@ -28,6 +28,13 @@ import {
   type PricingMethod,
   type PricingRules,
 } from "@/lib/quote/pricing";
+import {
+  defaultBranding,
+  logoFileToJpegDataUrl,
+  readStoredBranding,
+  writeStoredBranding,
+  type QuoteBranding,
+} from "@/lib/quote/branding";
 
 const PRESETS: SmtpPreset[] = ["gmail", "outlook", "qq", "163", "custom"];
 
@@ -51,6 +58,7 @@ export default function Settings() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [pricing, setPricing] = useState<PricingRules>(defaultPricingRules());
+  const [branding, setBranding] = useState<QuoteBranding>(defaultBranding());
 
   const hint = useMemo(() => {
     if (preset === "gmail") return t.settings.mailboxHintGmail;
@@ -108,6 +116,7 @@ export default function Settings() {
         setCompany(next);
         setContactName(next.contact_name ?? "");
         setPricing(readStoredPricing(next.id));
+        setBranding(readStoredBranding(next.id));
         if (!stored) {
           const email = next.contact_email || loginEmail;
           setContactEmail(email);
@@ -156,6 +165,7 @@ export default function Settings() {
       contact_email: email || null,
     }).eq("id", company.id);
     writeStoredPricing(company.id, pricing);
+    writeStoredBranding(company.id, branding);
     setMessage(error ? t.settings.saveFail : mailbox ? t.settings.mailboxConnected : t.settings.saved);
     setBusy(false);
   }
@@ -369,6 +379,53 @@ export default function Settings() {
             ))}
           </div>
           <p className="mt-2 text-xs leading-5 text-slate-500">{t.settings.percentHint}</p>
+        </div>
+
+        <div className="border-t border-slate-100 pt-4">
+          <h2 className="text-base font-semibold">{t.settings.brandingTitle}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{t.settings.brandingLead}</p>
+          <div className="mt-4">
+            <label className="label" htmlFor="logo">{t.settings.logo}</label>
+            {branding.logoDataUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={branding.logoDataUrl} alt="" className="mt-2 h-12 w-auto max-w-28 object-contain" />
+            )}
+            <input
+              id="logo"
+              className="mt-2 block text-sm"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                const dataUrl = await logoFileToJpegDataUrl(file).catch(() => null);
+                if (!dataUrl) {
+                  setMessage(t.settings.saveFail);
+                  return;
+                }
+                setBranding((row) => ({ ...row, logoDataUrl: dataUrl }));
+              }}
+            />
+            {branding.logoDataUrl && (
+              <button type="button" className="mt-2 text-sm text-slate-600" onClick={() => { setBranding((row) => ({ ...row, logoDataUrl: null })); setMessage(t.settings.logoCleared); }}>
+                {t.settings.logoRemove}
+              </button>
+            )}
+            <p className="mt-2 text-xs leading-5 text-slate-500">{t.settings.logoHint}</p>
+          </div>
+          <div className="mt-4">
+            <label className="label" htmlFor="accent">{t.settings.accent}</label>
+            <input id="accent" className="mt-1 h-10 w-20 cursor-pointer rounded-md border border-slate-300 bg-white" type="color" value={branding.accent} onChange={(e) => setBranding((row) => ({ ...row, accent: e.target.value }))} />
+          </div>
+          <div className="mt-4">
+            <label className="label" htmlFor="footer">{t.settings.footer}</label>
+            <input id="footer" className="field" value={branding.footer} onChange={(e) => setBranding((row) => ({ ...row, footer: e.target.value }))} />
+          </div>
+          <div className="mt-4">
+            <label className="label" htmlFor="terms">{t.settings.terms}</label>
+            <textarea id="terms" className="field" rows={3} value={branding.terms} onChange={(e) => setBranding((row) => ({ ...row, terms: e.target.value }))} />
+          </div>
         </div>
 
         {gmailConfigured && (

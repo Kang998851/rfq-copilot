@@ -8,6 +8,8 @@ import { messages } from "../lib/i18n/messages.ts";
 import { extractPdfText } from "../lib/rfq/pdf-text.ts";
 import { fileToContent, sourceTypeFromName } from "../lib/rfq/parse.ts";
 import { saleFromMargin, saleFromMarkup, quoteCurrency, suggestUnitPrice } from "../lib/quote/pricing.ts";
+import { buildQuotePdf } from "../lib/quote/pdf.ts";
+import { quoteNumberFromRfq } from "../lib/quote/document.ts";
 
 function assert(condition: unknown, message: string) {
   if (!condition) throw new Error(message);
@@ -96,5 +98,31 @@ assert(suggestUnitPrice({
   rules: { method: "margin", default_margin: 0.2, default_markup: 0, minimum_margin: 0, category_margins: {} },
   product: { category: "Valve", specifications: {} },
 }).unit_price === null, "do not invent FX");
+assert(quoteNumberFromRfq("RFQ-2026-001") === "QT-2026-001", "quote number from RFQ");
+const quotePdf = buildQuotePdf({
+  title: "Quotation",
+  companyName: "Hengda",
+  contactLine: "sales",
+  reference: "RFQ-2026-001",
+  quoteNumber: "QT-2026-001",
+  date: "Date",
+  validUntil: "2026-09-12",
+  currency: "USD",
+  status: "Ready",
+  buyerName: "Buyer",
+  buyerEmail: "",
+  incoterm: null,
+  items: [{ sku: "VLV-002", name: "Ball Valve", quantity: 10, unit: "pcs", unit_price: 18.9, lead_time_days: 12, spec: "DN25" }],
+  notes: "",
+  validity: "Valid 14 days",
+  disclaimer: "Human review",
+  signature: "Authorized signature / Date",
+  notProvided: "Not provided",
+});
+const pdfText = new TextDecoder("latin1").decode(quotePdf);
+assert(pdfText.startsWith("%PDF-"), "pdf header");
+assert(pdfText.includes("QT-2026-001"), "quote number in pdf");
+assert(pdfText.includes("Incoterm: Not provided"), "do not invent incoterm");
+assert(pdfText.includes("Authorized signature"), "signature area");
 
 console.log("rfq ingestion asserts: PASS");

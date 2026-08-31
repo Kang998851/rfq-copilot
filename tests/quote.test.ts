@@ -24,6 +24,7 @@ import {
   stuffDots,
 } from "@/lib/quote/smtp";
 import { buildQuotePdf } from "@/lib/quote/pdf";
+import { quoteNumberFromRfq, validUntil } from "@/lib/quote/document";
 import { allPricesFilled, formatMoney, lineAmount, quoteTotal } from "@/lib/quote/totals";
 import {
   belowMinimumMargin,
@@ -138,19 +139,51 @@ describe("quotation helpers", () => {
       companyName: "Hengda",
       contactLine: "sales@hengda.test",
       reference: "RFQ-2026-001",
+      quoteNumber: "QT-2026-001",
       date: "Date: 2026-08-29",
+      validUntil: "2026-09-12",
       currency: "USD",
       status: "Ready",
       buyerName: "Pacific Motion Systems",
       buyerEmail: "alex@pacific-motion.com",
-      items,
+      incoterm: "FOB",
+      payment: null,
+      items: [{ ...items[0], spec: "DN25 · SS304" }, items[1]],
       notes: "Reviewed prices",
       validity: "Valid 14 days",
       disclaimer: "Human review required",
+      signature: "Authorized signature / Date",
+      notProvided: "Not provided",
     });
-    expect(new TextDecoder().decode(pdf.slice(0, 5))).toBe("%PDF-");
-    expect(new TextDecoder().decode(pdf)).toContain("RFQ-2026-001");
-    expect(new TextDecoder().decode(pdf)).toContain("VLV-002");
+    const text = new TextDecoder("latin1").decode(pdf);
+    expect(text.slice(0, 5)).toBe("%PDF-");
+    expect(text).toContain("QT-2026-001");
+    expect(text).toContain("RFQ-2026-001");
+    expect(text).toContain("VLV-002");
+    expect(text).toContain("Incoterm: FOB");
+    expect(text).toContain("Payment: Not provided");
+    expect(text).toContain("Valid until: 2026-09-12");
+    expect(text).toContain("Authorized signature");
+    expect(text).toContain("DN25");
+    expect(quoteNumberFromRfq("RFQ-2026-001")).toBe("QT-2026-001");
+    expect(validUntil({ deadline: { value: "15 Sep 2026", confidence: 0.7, source: "x" } }, new Date("2026-08-29T00:00:00")).source).toBe("customer");
+    expect(validUntil({}, new Date(2026, 7, 29)).value).toBe("2026-09-12");
+    const many = buildQuotePdf({
+      title: "Quotation",
+      companyName: "Hengda",
+      contactLine: "sales",
+      reference: "RFQ-2026-009",
+      date: "Date",
+      currency: "USD",
+      status: "Draft",
+      buyerName: "Buyer",
+      buyerEmail: "",
+      items: Array.from({ length: 20 }, (_, i) => ({ sku: `S-${i}`, name: `Item ${i}`, quantity: 1, unit: "pcs", unit_price: 1, lead_time_days: 7 })),
+      notes: "",
+      validity: "",
+      disclaimer: "",
+    });
+    expect(new TextDecoder("latin1").decode(many)).toContain("/Count 2");
   });
 
   it("prepares a free mailbox from common providers", () => {
